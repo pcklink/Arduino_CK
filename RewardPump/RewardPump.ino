@@ -18,15 +18,20 @@
 
 // Define stepper motor connections and motor interface type. 
 // Motor interface type must be set to 1 when using a driver
-#define dirPin 2      // allows for direction comntrol (handled by driver)
+#define dirPin 2      // allows for direction control (handled by driver)
 #define stepPin 3     // sends the stepping commands
 #define enablePin 12  // allows switching motor off
 // Create a new instance of the AccelStepper class:
 AccelStepper stepper = AccelStepper(AccelStepper::DRIVER, stepPin, dirPin);
 
 // triggers and buttons
-#define ttlPin 5              // BNC or on/off switch based stepping
+#define ttlPin 6              // BNC based stepping
+#define togglePin 5           // ON/OFF toggle stepping
 #define manPin 7              // Manual button based stepping
+
+// use digital out as reference signal
+# define refPin 10            // TTL high pin  
+# define ref0Pin 9            // TTL low pin  
 
 // variables to get from a gui
 String inputString = "";      // a String to hold incoming data
@@ -49,6 +54,9 @@ int runvar = 0;               // Variable to allow serial triggering
 
 bool verbose = false;         // verbosity
 
+bool ttlON = false;
+bool toggleON = false;
+
 // == SETUP ==========
 void serialEventRun(void) {
   if (Serial.available()) serialEvent();
@@ -60,10 +68,16 @@ void setup() {
   // Set control pins
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
-  pinMode(ttlPin, INPUT_PULLUP);
-  pinMode(manPin, INPUT_PULLUP);
+  pinMode(refPin, OUTPUT);
+  digitalWrite(refPin, HIGH);  
+  pinMode(ref0Pin, OUTPUT);
+  digitalWrite(ref0Pin, LOW);   
+  pinMode(enablePin, OUTPUT);
+  digitalWrite(enablePin, HIGH);  
 
-  digitalWrite(enablePin, LOW); // Enable motor 
+  pinMode(ttlPin, INPUT);
+  pinMode(togglePin, INPUT_PULLUP);
+  pinMode(manPin, INPUT_PULLUP);
 
   // initialize serial:
   Serial.begin(9600);
@@ -74,6 +88,7 @@ void setup() {
     Serial.print("Speed = ");
     Serial.println(DirSpeed);
   }
+  //stepper.runSpeed();
 }
 
 // == COMMUNICATION ==========
@@ -180,12 +195,44 @@ void interpretCommand() {
 void loop() {
   // check ttlPin
   bool ttlPinStatus = digitalRead(ttlPin);
-  if (ttlPinStatus==LOW) {
-    digitalWrite(enablePin, LOW); // enable motor 
-    stepper.runSpeed();
+  if (ttlPinStatus==HIGH){
+    if (ttlON==false){
+      Serial.println("running ttl");
+      digitalWrite(enablePin, LOW); // enable motor 
+      stepper.runSpeed();
+      ttlON = true;
+      }
+    else {
+      stepper.runSpeed();
+    }
   }
   else {
-    digitalWrite(enablePin, HIGH); // disable motor 
+    if (ttlON==true){
+      Serial.println("stopping ttl");
+      digitalWrite(enablePin, HIGH); // disable motor 
+      ttlON= false;
+    }
+  }
+
+  // check togglePin
+  bool togglePinStatus = digitalRead(togglePin);
+  if (togglePinStatus==LOW) {
+    if (toggleON==false) {
+      Serial.println("running toggle");
+      digitalWrite(enablePin, LOW); // enable motor 
+      stepper.runSpeed();
+      toggleON = true;
+    }
+    else {
+      stepper.runSpeed();
+    }
+  }
+  else {
+    if (toggleON==true) {
+      digitalWrite(enablePin, HIGH); // disable motor 
+      Serial.println("stopping toggle");
+      toggleON = false;
+    }
   }
 
   // check manPin
@@ -200,6 +247,7 @@ void loop() {
   if (ManOn) {
     digitalWrite(enablePin, LOW); // enable motor 
     StartMan = millis();
+    Serial.println("running manual");
     while ((millis() - StartMan) < (ManDur)) {
       stepper.runSpeed();
     }    

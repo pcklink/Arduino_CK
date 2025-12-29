@@ -1,15 +1,15 @@
-// Control a stepper motor with A4988 stepper motor driver, 
+// Control a stepper motor with DRV8825 stepper motor driver, 
 // AccelStepper library and Arduino. Setup for injector.
 // c.klink@nin.knaw.nl
 
 // Step Resolution (full 200/revolution)
 // J1     J2     J3         S
-// Low	  Low	   Low	      Full step
-// High	  Low	   Low	      1/2 step
+// Low	  Low	 Low	      Full step
+// High	  Low	 Low	      1/2 step
 // Low	  High	 Low	      1/4 step
 // High	  High	 Low	      1/8 step
-// Low	  Low	   High	      1/16 step
-// High	  Low	   High	      1/32 step
+// Low	  Low	 High	      1/16 step
+// High	  Low	 High	      1/32 step
 // Low	  High	 High	      1/32 step
 // High	  High	 High	      1/32 step
 float StepResolution = 1;
