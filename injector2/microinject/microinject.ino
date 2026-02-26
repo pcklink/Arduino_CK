@@ -1,8 +1,11 @@
 // ============================================================
-//  Microinjector Firmware
+//  Microinjector Firmware  v2.0
 //  Hardware: Arduino Nano + ULN2003 + 28BYJ-48 stepper
 //  Library:  AccelStepper (4-wire half-step, MotorInterfaceType 4)
 //  Serial:   9600 baud, newline line-ending
+//
+//  Speed model: constant acceleration from start_speed to end_speed
+//  across the full move distance.  accel=0 → constant speed at start_speed.
 // ============================================================
 #include <AccelStepper.h>
 
@@ -13,8 +16,8 @@
 #define IN4 11
 
 // ---- Motor constants ----
-#define MOTOR_INTERFACE_TYPE 4 // 4-wire half-step
-#define STEPS_PER_REV 2048L    // 28BYJ-48 full revolution
+#define MOTOR_INTERFACE_TYPE 4
+#define STEPS_PER_REV 2048L
 #define ABS_MAX_SPEED 1000.0f
 #define ABS_MAX_ACCEL 1000.0f
 
@@ -22,28 +25,28 @@
 #define MAX_STEPS 5
 
 struct Step {
-  bool forward;  // true = forward, false = backward
-  long distance; // steps (positive)
-  float speed;   // steps/s
-  float accel;   // steps/s²
+  bool  forward;      // true = forward, false = backward
+  long  distance;     // steps (positive)
+  float start_speed;  // steps/s at beginning of move
+  float end_speed;    // steps/s at end of move (clamped; distance takes precedence)
+  float accel;        // steps/s² (positive = accel, negative = decel, 0 = constant)
 };
 
-Step program[MAX_STEPS];
+Step    program[MAX_STEPS];
 uint8_t programCount = 0;
 
-// ---- Constant-speed mode flag (set when accel == 0) ----
-bool g_const_speed = false;
-long g_target_dist = 0;
+// ---- Active-move globals ----
+bool  g_moving      = false;
+long  g_target_dist = 0;
+float g_start_speed = 1.0f;
+float g_end_speed   = 1.0f;
+float g_accel       = 0.0f;
+bool  g_fwd         = true;
 
 // ---- State machine ----
-enum State {
-  STATE_IDLE,          // showing main menu, waiting for command
-  STATE_MOVING_MANUAL, // executing a manual move
-  STATE_MOVING_PROG,   // executing program step n
-};
-
-State state = STATE_IDLE;
-uint8_t progStepIndex = 0; // which program step is currently running
+enum State { STATE_IDLE, STATE_MOVING_MANUAL, STATE_MOVING_PROG };
+State   state         = STATE_IDLE;
+uint8_t progStepIndex = 0;
 
 // ---- AccelStepper instance ----
 AccelStepper stepper(MOTOR_INTERFACE_TYPE, IN1, IN2, IN3, IN4);
@@ -51,19 +54,18 @@ AccelStepper stepper(MOTOR_INTERFACE_TYPE, IN1, IN2, IN3, IN4);
 // ===========================================================
 //  Helpers
 // ===========================================================
-
 void printDivider() { Serial.println(F("----------------------------")); }
 
 void printMainMenu() {
   printDivider();
-  Serial.println(F("  MICROINJECTOR  v1.0"));
+  Serial.println(F("  MICROINJECTOR  v2.0"));
   printDivider();
   Serial.println(F("  [M] Manual move"));
   Serial.println(F("  [P] Edit program"));
   Serial.println(F("  [R] Run program"));
   Serial.println(F("  [S] Show program"));
   Serial.println(F("  [C] Clear program"));
-  Serial.println(F("  [?] Help / units"));
+  Serial.println(F("  [?] Help"));
   printDivider();
   Serial.print(F("  Steps stored: "));
   Serial.println(programCount);
@@ -73,117 +75,104 @@ void printMainMenu() {
 
 void printHelp() {
   Serial.println(F("Units & limits:"));
-  Serial.println(F("  Distance : steps  (2048 = 1 full revolution)"));
-  Serial.println(F("  Speed    : steps/s  (1 - 1000)"));
-  Serial.println(F("  Accel    : steps/s2  (1 - 1000)"));
-  Serial.println(F("  Direction: F = forward, B = backward"));
-  Serial.println(F("During a move type X + Enter to abort."));
+  Serial.println(F("  Distance  : steps  (2048 = 1 rev)"));
+  Serial.println(F("  Start spd : steps/s  (1 - 1000)  speed at t=0"));
+  Serial.println(F("  End spd   : steps/s  (1 - 1000)  target final speed"));
+  Serial.println(F("  Accel     : steps/s2 (-1000 to +1000, 0 = constant)"));
+  Serial.println(F("  Direction : F = forward, B = backward"));
+  Serial.println(F("During a move: type X + Enter to abort."));
 }
 
 void printProgram() {
-  if (programCount == 0) {
-    Serial.println(F("Program is empty."));
-    return;
-  }
-  Serial.println(F("#  Dir  Distance(steps)  Speed(sps)  Accel(sps2)"));
+  if (programCount == 0) { Serial.println(F("Program is empty.")); return; }
+  Serial.println(F("#  Dir  Dist(steps)  StartSpd  EndSpd  Accel"));
   printDivider();
   for (uint8_t i = 0; i < programCount; i++) {
-    Serial.print(i + 1);
-    Serial.print(F("  "));
-    Serial.print(program[i].forward ? 'F' : 'B');
-    Serial.print(F("    "));
-    Serial.print(program[i].distance);
-    Serial.print(F("             "));
-    Serial.print((int)program[i].speed);
-    Serial.print(F("         "));
+    Serial.print(i + 1);          Serial.print(F("  "));
+    Serial.print(program[i].forward ? 'F' : 'B'); Serial.print(F("    "));
+    Serial.print(program[i].distance);            Serial.print(F("         "));
+    Serial.print((int)program[i].start_speed);    Serial.print(F("        "));
+    Serial.print((int)program[i].end_speed);      Serial.print(F("     "));
     Serial.println((int)program[i].accel);
   }
 }
 
-// ---- Blocking prompt: read a trimmed string from serial ----
 String promptLine(const char *msg) {
   Serial.print(msg);
-  while (!Serial.available()) { /* wait */
-  }
+  while (!Serial.available()) {}
   String s = Serial.readStringUntil('\n');
   s.trim();
   return s;
 }
 
-// ---- Prompt a float, re-ask until valid & in range ----
-float promptFloat(const char *msg, float minVal, float maxVal) {
-  float val;
+float promptFloat(const char *msg, float lo, float hi) {
   while (true) {
     String s = promptLine(msg);
-    val = s.toFloat();
-    if (val >= minVal && val <= maxVal)
-      return val;
-    Serial.print(F("  ! Out of range ("));
-    Serial.print(minVal);
-    Serial.print(F(" - "));
-    Serial.print(maxVal);
-    Serial.println(F("), try again."));
+    float v = s.toFloat();
+    if (v >= lo && v <= hi) return v;
+    Serial.print(F("  ! Out of range (")); Serial.print(lo);
+    Serial.print(F(" - ")); Serial.print(hi); Serial.println(F("), try again."));
   }
 }
 
-// ---- Prompt a long integer ----
-long promptLong(const char *msg, long minVal, long maxVal) {
-  long val;
+long promptLong(const char *msg, long lo, long hi) {
   while (true) {
     String s = promptLine(msg);
-    val = s.toInt();
-    if (val >= minVal && val <= maxVal)
-      return val;
-    Serial.print(F("  ! Out of range ("));
-    Serial.print(minVal);
-    Serial.print(F(" - "));
-    Serial.print(maxVal);
-    Serial.println(F("), try again."));
+    long v = s.toInt();
+    if (v >= lo && v <= hi) return v;
+    Serial.print(F("  ! Out of range (")); Serial.print(lo);
+    Serial.print(F(" - ")); Serial.print(hi); Serial.println(F("), try again."));
   }
 }
 
-// ---- Prompt direction (F/B), return true = forward ----
 bool promptDirection() {
   while (true) {
     String s = promptLine("  Direction (F=forward, B=backward) > ");
     s.toUpperCase();
-    if (s == "F")
-      return true;
-    if (s == "B")
-      return false;
+    if (s == "F") return true;
+    if (s == "B") return false;
     Serial.println(F("  ! Enter F or B."));
   }
 }
 
-// ---- Collect all move parameters into a Step struct ----
 Step promptStep() {
   Step st;
-  st.forward = promptDirection();
-  st.distance = promptLong("  Distance  (steps, 1 - 999999) > ", 1, 999999L);
-  st.speed =
-      promptFloat("  Speed     (steps/s, 1 - 1000) > ", 1.0f, ABS_MAX_SPEED);
-  st.accel =
-      promptFloat("  Accel     (steps/s2, 0 - 1000) > ", 0.0f, ABS_MAX_ACCEL);
+  st.forward     = promptDirection();
+  st.distance    = promptLong ("  Distance  (steps, 1-999999) > ", 1, 999999L);
+  st.start_speed = promptFloat("  Start spd (steps/s, 1-1000) > ", 1.0f, ABS_MAX_SPEED);
+  st.end_speed   = promptFloat("  End spd   (steps/s, 1-1000) > ", 1.0f, ABS_MAX_SPEED);
+  st.accel       = promptFloat("  Accel     (steps/s2, -1000 to 1000) > ", -ABS_MAX_ACCEL, ABS_MAX_ACCEL);
   return st;
 }
 
-// ---- Apply AccelStepper settings and kick off a move ----
+// ---- Start a move — always uses runSpeed() with per-tick speed update ----
 void startStep(const Step &st) {
   stepper.setCurrentPosition(0);
-  if (st.accel == 0) {
-    // Constant speed — use runSpeed(), no ramp
-    g_const_speed = true;
-    g_target_dist = st.distance;
-    float spd = st.forward ? (float)st.speed : -(float)st.speed;
-    stepper.setMaxSpeed(abs(spd));
-    stepper.setSpeed(spd);
-  } else {
-    g_const_speed = false;
-    long target = st.forward ? st.distance : -st.distance;
-    stepper.setMaxSpeed(st.speed);
-    stepper.setAcceleration(st.accel);
-    stepper.moveTo(target);
-  }
+  g_target_dist = st.distance;
+  g_start_speed = max(1.0f, st.start_speed);
+  g_end_speed   = max(1.0f, st.end_speed);
+  g_accel       = st.accel;
+  g_fwd         = st.forward;
+  g_moving      = true;
+
+  float max_v = max(g_start_speed, g_end_speed);
+  stepper.setMaxSpeed(max_v);
+  stepper.setSpeed(g_fwd ? g_start_speed : -g_start_speed);
+}
+
+// ---- Compute instantaneous speed from steps already done ----
+float computeSpeed(long steps_done) {
+  if (g_accel == 0.0f || g_start_speed == g_end_speed) return g_start_speed;
+
+  float v2 = g_start_speed * g_start_speed + 2.0f * g_accel * (float)steps_done;
+  if (v2 < 0.0f) v2 = 0.0f;       // deceleration floored at zero
+  float v = sqrtf(v2);
+
+  // Clamp to end_speed so we don't overshoot the target speed
+  if (g_accel > 0.0f) v = min(v, g_end_speed);
+  else                 v = max(v, g_end_speed);
+
+  return max(v, 1.0f);             // never go below 1 step/s
 }
 
 // ===========================================================
@@ -192,8 +181,7 @@ void startStep(const Step &st) {
 void setup() {
   Serial.begin(9600);
   stepper.setMaxSpeed(ABS_MAX_SPEED);
-  stepper.setAcceleration(50.0f);
-  stepper.disableOutputs(); // power off coils until a move begins
+  stepper.disableOutputs();
   delay(300);
   printMainMenu();
 }
@@ -203,24 +191,23 @@ void setup() {
 // ===========================================================
 void loop() {
 
-  // ---- Always service stepper motion ----
-  if (g_const_speed) {
+  // ---- Service stepper motion every loop ----
+  if (g_moving) {
+    long steps_done = abs(stepper.currentPosition());
+    float v = computeSpeed(steps_done);
+    stepper.setMaxSpeed(v);
+    stepper.setSpeed(g_fwd ? v : -v);
     stepper.runSpeed();
-  } else {
-    stepper.run();
   }
 
-  // ---- While moving: check for completion or abort ----
+  // ---- While moving: check completion or abort ----
   if (state == STATE_MOVING_MANUAL || state == STATE_MOVING_PROG) {
 
-    // Move finished?
-    bool done = g_const_speed
-                    ? (abs(stepper.currentPosition()) >= g_target_dist)
-                    : (stepper.distanceToGo() == 0);
+    bool done = (abs(stepper.currentPosition()) >= g_target_dist);
 
     if (done) {
-      stepper.disableOutputs(); // cut coil current when done
-      g_const_speed = false;
+      g_moving = false;
+      stepper.disableOutputs();
 
       if (state == STATE_MOVING_MANUAL) {
         Serial.println(F("\n[DONE] Move complete."));
@@ -228,13 +215,10 @@ void loop() {
         printMainMenu();
 
       } else {
-        // Program step done — advance to next
         progStepIndex++;
         if (progStepIndex < programCount) {
-          Serial.print(F("\n[STEP "));
-          Serial.print(progStepIndex + 1);
-          Serial.print('/');
-          Serial.print(programCount);
+          Serial.print(F("\n[STEP ")); Serial.print(progStepIndex + 1);
+          Serial.print('/'); Serial.print(programCount);
           Serial.println(F("] Starting..."));
           stepper.enableOutputs();
           startStep(program[progStepIndex]);
@@ -247,46 +231,31 @@ void loop() {
       return;
     }
 
-    // Abort requested?
+    // Abort?
     if (Serial.available()) {
       String s = Serial.readStringUntil('\n');
-      s.trim();
-      s.toUpperCase();
+      s.trim(); s.toUpperCase();
       if (s == "X") {
-        if (g_const_speed) {
-          stepper.setSpeed(0); // immediate stop — no ramp in const-speed mode
-          g_const_speed = false;
-        } else {
-          stepper.stop(); // ramp down to stop
-          while (stepper.distanceToGo() != 0)
-            stepper.run();
-        }
+        stepper.setSpeed(0);
+        g_moving = false;
         stepper.disableOutputs();
         Serial.println(F("\n[ABORTED] Motor stopped."));
         state = STATE_IDLE;
         printMainMenu();
       }
     }
-    return; // skip menu processing while moving
+    return;
   }
 
-  // ---- STATE_IDLE: process serial commands ----
-  if (!Serial.available())
-    return;
-
+  // ---- STATE_IDLE: process commands ----
+  if (!Serial.available()) return;
   String cmd = Serial.readStringUntil('\n');
-  cmd.trim();
-  cmd.toUpperCase();
-  if (cmd.length() == 0) {
-    printMainMenu();
-    return;
-  }
+  cmd.trim(); cmd.toUpperCase();
+  if (cmd.length() == 0) { printMainMenu(); return; }
 
   char ch = cmd.charAt(0);
-
   switch (ch) {
 
-  // ---- Manual move ----------------------------------------
   case 'M': {
     Serial.println(F("\n--- Manual Move ---"));
     Step st = promptStep();
@@ -297,7 +266,6 @@ void loop() {
     break;
   }
 
-  // ---- Edit program ---------------------------------------
   case 'P': {
     Serial.println(F("\n--- Program Editor ---"));
     bool editing = true;
@@ -305,76 +273,53 @@ void loop() {
       printProgram();
       Serial.println(F("\n[A] Add step  [D n] Delete step  [Q] Back"));
       Serial.print(F("> "));
-      while (!Serial.available()) {
-      }
+      while (!Serial.available()) {}
       String s = Serial.readStringUntil('\n');
       s.trim();
-      if (s.length() == 0)
-        continue;
-
+      if (s.length() == 0) continue;
       char ec = toupper(s.charAt(0));
+
       if (ec == 'Q') {
         editing = false;
-
       } else if (ec == 'A') {
         if (programCount >= MAX_STEPS) {
-          Serial.println(
-              F("! Program full (max 5 steps). Delete a step first."));
+          Serial.println(F("! Program full (max 5 steps)."));
         } else {
-          Serial.print(F("\n--- New Step "));
-          Serial.print(programCount + 1);
-          Serial.println(F(" ---"));
+          Serial.print(F("\n--- New Step ")); Serial.print(programCount + 1); Serial.println(F(" ---"));
           program[programCount] = promptStep();
           programCount++;
           Serial.println(F("Step added."));
         }
-
       } else if (ec == 'D') {
-        // Expect "D n" where n is 1-based step number
-        if (s.length() < 3) {
-          Serial.println(F("! Usage: D <step_number>  e.g. D 2"));
-          continue;
-        }
-        int idx = s.substring(2).toInt() - 1; // convert to 0-based
+        if (s.length() < 3) { Serial.println(F("! Usage: D <n>")); continue; }
+        int idx = s.substring(2).toInt() - 1;
         if (idx < 0 || idx >= (int)programCount) {
           Serial.println(F("! Invalid step number."));
         } else {
-          for (uint8_t i = idx; i < programCount - 1; i++) {
-            program[i] = program[i + 1]; // shift steps down
-          }
+          for (uint8_t i = idx; i < programCount - 1; i++) program[i] = program[i + 1];
           programCount--;
           Serial.println(F("Step deleted."));
         }
-
       } else {
-        Serial.println(F("! Unknown command. Use A, D <n>, or Q."));
+        Serial.println(F("! Use A, D <n>, or Q."));
       }
     }
     printMainMenu();
     break;
   }
 
-  // ---- Run program ----------------------------------------
   case 'R': {
-    if (programCount == 0) {
-      Serial.println(F("! Program is empty. Use [P] to add steps."));
-      printMainMenu();
-      break;
-    }
+    if (programCount == 0) { Serial.println(F("! Program empty.")); printMainMenu(); break; }
     progStepIndex = 0;
-    Serial.print(F("\n--- Running Program ("));
-    Serial.print(programCount);
+    Serial.print(F("\n--- Running Program (")); Serial.print(programCount);
     Serial.println(F(" step(s)) --- type X + Enter to abort ---"));
-    Serial.print(F("[STEP 1/"));
-    Serial.print(programCount);
-    Serial.println(F("] Starting..."));
+    Serial.print(F("[STEP 1/")); Serial.print(programCount); Serial.println(F("] Starting..."));
     stepper.enableOutputs();
     startStep(program[0]);
     state = STATE_MOVING_PROG;
     break;
   }
 
-  // ---- Show program ---------------------------------------
   case 'S': {
     Serial.println(F("\n--- Current Program ---"));
     printProgram();
@@ -382,7 +327,6 @@ void loop() {
     break;
   }
 
-  // ---- Clear program --------------------------------------
   case 'C': {
     programCount = 0;
     Serial.println(F("Program cleared."));
@@ -390,7 +334,6 @@ void loop() {
     break;
   }
 
-  // ---- Help -----------------------------------------------
   case '?': {
     Serial.println();
     printHelp();
@@ -399,8 +342,7 @@ void loop() {
   }
 
   default: {
-    Serial.print(F("! Unknown command: "));
-    Serial.println(cmd);
+    Serial.print(F("! Unknown command: ")); Serial.println(cmd);
     printMainMenu();
     break;
   }
