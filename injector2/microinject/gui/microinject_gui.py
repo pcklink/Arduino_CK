@@ -163,16 +163,20 @@ QPushButton#accentBtn:disabled {{
 QPushButton#dangerBtn {{
     background-color: {DANGER};
     color: white;
-    border: none;
-    font-weight: 700;
-    font-size: 14px;
+    border: 2px solid white;
+    border-radius: 8px;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 1px;
 }}
 QPushButton#dangerBtn:hover {{
-    background-color: #f06070;
+    background-color: #ff5a6a;
+    border-color: #ffe0e0;
 }}
 QPushButton#dangerBtn:disabled {{
     background-color: #4a2530;
     color: #7a4050;
+    border-color: #5a2a35;
 }}
 QPushButton#successBtn {{
     background-color: {SUCCESS};
@@ -619,8 +623,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Microinjector Control Panel")
-        self.resize(1100, 720)
-        self.setMinimumSize(920, 600)
+        self.resize(1100, 940)
+        self.setMinimumSize(920, 800)
         self.setStyleSheet(STYLESHEET)
 
         # ── data ──────────────────────────────────────────────────────────────
@@ -632,6 +636,9 @@ class MainWindow(QMainWindow):
         self._in_prog_menu = False   # True while firmware is in P sub-menu
         self._updating_dur = False   # prevents signal loops in speed↔duration
         self._prog_cmd_queue: list = []  # commands to send on next '>' prompt
+        self._syncing_speed = False          # prevents slider↔spinner feedback loops
+        self._speed_time_scale: float = 1.0  # 1.0 = /s, 60.0 = /min
+        self._accel_time_scale: float = 1.0  # 1.0 = /s², 3600.0 = /min²
 
         # ── volume units ──────────────────────────────────────────────────────
         self._vol_unit = "µL"
@@ -671,8 +678,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(12, 12, 12, 8)
-        root.setSpacing(10)
+        root.setContentsMargins(8, 8, 8, 6)
+        root.setSpacing(6)
 
         # ── Top bar: port selector + connect ─────────────────────────────────
         root.addWidget(self._build_connection_bar())
@@ -743,13 +750,6 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        # Abort — always visible
-        self._btn_abort = QPushButton("⛔  ABORT")
-        self._btn_abort.setObjectName("dangerBtn")
-        self._btn_abort.setFixedWidth(130)
-        self._btn_abort.setFixedHeight(36)
-        self._btn_abort.clicked.connect(self._do_abort)
-        layout.addWidget(self._btn_abort)
 
         # Countdown display
         self._lbl_countdown = QLabel("⏱  --")
@@ -781,8 +781,8 @@ class MainWindow(QMainWindow):
     def _build_manual_tab(self) -> QWidget:
         w = QWidget()
         vbox = QVBoxLayout(w)
-        vbox.setContentsMargins(12, 12, 12, 12)
-        vbox.setSpacing(14)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(8)
 
         # Unit mode toggle (enabled once syringe is confirmed)
         unit_row = QHBoxLayout()
@@ -840,6 +840,22 @@ class MainWindow(QMainWindow):
         self._speed_group = speed_group
         speed_vlay = QVBoxLayout(speed_group)
 
+        # Time unit toggle for speed
+        spd_time_row = QHBoxLayout()
+        spd_time_lbl = QLabel("Time unit:")
+        spd_time_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 11px;")
+        self._rb_spd_per_s   = QRadioButton("/s")
+        self._rb_spd_per_min = QRadioButton("/min")
+        self._rb_spd_per_s.setChecked(True)
+        for rb in (self._rb_spd_per_s, self._rb_spd_per_min):
+            rb.setStyleSheet(f"font-size: 11px; color: {TEXT_SEC};")
+        self._rb_spd_per_s.toggled.connect(self._on_speed_time_unit_changed)
+        spd_time_row.addWidget(spd_time_lbl)
+        spd_time_row.addWidget(self._rb_spd_per_s)
+        spd_time_row.addWidget(self._rb_spd_per_min)
+        spd_time_row.addStretch()
+        speed_vlay.addLayout(spd_time_row)
+
         # Start speed
         start_lbl = QLabel("Start:")
         start_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 12px; min-width: 34px;")
@@ -887,25 +903,83 @@ class MainWindow(QMainWindow):
         dur_row.addStretch()
         speed_vlay.addLayout(dur_row)
 
-        # Slider ↔ spinner sync (mm mode only)
-        self._slider_start_speed.valueChanged.connect(
-            lambda v: self._spin_start_speed.setValue(round(v * MM_PER_STEP, 4))
-            if not self._rb_unit_ul.isChecked() else None)
-        self._spin_start_speed.valueChanged.connect(
-            lambda v: self._slider_start_speed.setValue(max(1, int(round(v / MM_PER_STEP))))
-            if not self._rb_unit_ul.isChecked() else None)
-        self._slider_end_speed.valueChanged.connect(
-            lambda v: self._spin_end_speed.setValue(round(v * MM_PER_STEP, 4))
-            if not self._rb_unit_ul.isChecked() else None)
-        self._spin_end_speed.valueChanged.connect(
-            lambda v: self._slider_end_speed.setValue(max(1, int(round(v / MM_PER_STEP))))
-            if not self._rb_unit_ul.isChecked() else None)
+        # Range hint
+        self._lbl_speed_range = QLabel(
+            f"Range: {round(MM_PER_STEP, 5)} – {round(1000 * MM_PER_STEP, 4)} mm/s"
+            f"  (1 – 1000 steps/s)")
+        self._lbl_speed_range.setStyleSheet(
+            f"color: {TEXT_SEC}; font-size: 11px; font-style: italic;")
+        speed_vlay.addWidget(self._lbl_speed_range)
+
+        # Slider ↔ spinner sync (mm mode only) — guard flag prevents feedback loops
+        def _slider_start_changed(v):
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._spin_start_speed.setValue(round(v * MM_PER_STEP, 4))
+            finally:
+                self._syncing_speed = False
+
+        def _spin_start_finished():
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._slider_start_speed.setValue(max(1, int(round(self._spin_start_speed.value() / MM_PER_STEP))))
+            finally:
+                self._syncing_speed = False
+
+        def _slider_end_changed(v):
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._spin_end_speed.setValue(round(v * MM_PER_STEP, 4))
+            finally:
+                self._syncing_speed = False
+
+        def _spin_end_finished():
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._slider_end_speed.setValue(max(1, int(round(self._spin_end_speed.value() / MM_PER_STEP))))
+            finally:
+                self._syncing_speed = False
+
+        self._slider_start_speed.valueChanged.connect(_slider_start_changed)
+        self._spin_start_speed.editingFinished.connect(_spin_start_finished)
+        self._slider_end_speed.valueChanged.connect(_slider_end_changed)
+        self._spin_end_speed.editingFinished.connect(_spin_end_finished)
         vbox.addWidget(speed_group)
 
         # Acceleration
         accel_group = QGroupBox("Acceleration")
         self._accel_group = accel_group
-        accel_layout = QHBoxLayout(accel_group)
+        # Use a VBoxLayout on the group: time toggle, slider+spinner row, range hint
+        accel_group_vlay = QVBoxLayout(accel_group)
+        accel_group_vlay.setSpacing(4)
+
+        # Time unit toggle for acceleration
+        acc_time_row = QHBoxLayout()
+        acc_time_lbl = QLabel("Time unit:")
+        acc_time_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 11px;")
+        self._rb_acc_per_s   = QRadioButton("/s²")
+        self._rb_acc_per_min = QRadioButton("/min²")
+        self._rb_acc_per_s.setChecked(True)
+        for rb in (self._rb_acc_per_s, self._rb_acc_per_min):
+            rb.setStyleSheet(f"font-size: 11px; color: {TEXT_SEC};")
+        self._rb_acc_per_s.toggled.connect(self._on_accel_time_unit_changed)
+        acc_time_row.addWidget(acc_time_lbl)
+        acc_time_row.addWidget(self._rb_acc_per_s)
+        acc_time_row.addWidget(self._rb_acc_per_min)
+        acc_time_row.addStretch()
+        accel_group_vlay.addLayout(acc_time_row)
+
+        accel_row_widget = QWidget()
+        accel_layout = QHBoxLayout(accel_row_widget)
+        accel_layout.setContentsMargins(0, 0, 0, 0)
         self._slider_accel = QSlider(Qt.Orientation.Horizontal)
         self._slider_accel.setRange(0, 1000)
         self._slider_accel.setValue(100)
@@ -916,14 +990,34 @@ class MainWindow(QMainWindow):
         self._spin_accel.setSuffix(" mm/s²")
         self._spin_accel.setSpecialValueText("0  (constant speed)")
         self._spin_accel.setFixedWidth(130)
-        self._slider_accel.valueChanged.connect(
-            lambda v: self._spin_accel.setValue(round(v * MM_PER_STEP, 4))
-            if not self._rb_unit_ul.isChecked() else None)
-        self._spin_accel.valueChanged.connect(
-            lambda v: self._slider_accel.setValue(max(0, int(round(v / MM_PER_STEP))))
-            if not self._rb_unit_ul.isChecked() else None)
+        def _slider_accel_changed(v):
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._spin_accel.setValue(round(v * MM_PER_STEP, 4))
+            finally:
+                self._syncing_speed = False
+
+        def _spin_accel_finished():
+            if self._syncing_speed or self._rb_unit_ul.isChecked():
+                return
+            self._syncing_speed = True
+            try:
+                self._slider_accel.setValue(max(0, int(round(self._spin_accel.value() / MM_PER_STEP))))
+            finally:
+                self._syncing_speed = False
+
+        self._slider_accel.valueChanged.connect(_slider_accel_changed)
+        self._spin_accel.editingFinished.connect(_spin_accel_finished)
         accel_layout.addWidget(self._slider_accel, 1)
         accel_layout.addWidget(self._spin_accel)
+        accel_group_vlay.addWidget(accel_row_widget)
+        self._lbl_accel_range = QLabel(
+            f"Range: ±{round(1000 * MM_PER_STEP, 4)} mm/s²  (0 = constant speed,  max ±1000 steps/s²)")
+        self._lbl_accel_range.setStyleSheet(
+            f"color: {TEXT_SEC}; font-size: 11px; font-style: italic;")
+        accel_group_vlay.addWidget(self._lbl_accel_range)
         vbox.addWidget(accel_group)
 
         # Wire duration display update (all inputs affect it)
@@ -935,22 +1029,30 @@ class MainWindow(QMainWindow):
 
         vbox.addStretch()
 
-        # Move button
+        # Move row
+        move_row = QHBoxLayout()
         self._btn_move = QPushButton("▶  Move Motor")
         self._btn_move.setObjectName("accentBtn")
         self._btn_move.setMinimumHeight(44)
         self._btn_move.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         self._btn_move.clicked.connect(self._do_manual_move)
-        vbox.addWidget(self._btn_move)
-
+        
+        self._btn_stop_manual = QPushButton("🛑  STOP")
+        self._btn_stop_manual.setObjectName("dangerBtn")
+        self._btn_stop_manual.setMinimumHeight(44)
+        self._btn_stop_manual.clicked.connect(self._do_abort)
+        
+        move_row.addWidget(self._btn_move, 3)
+        move_row.addWidget(self._btn_stop_manual, 1)
+        vbox.addLayout(move_row)
         return w
 
     # ── Program tab ───────────────────────────────────────────────────────────
     def _build_program_tab(self) -> QWidget:
         w = QWidget()
         vbox = QVBoxLayout(w)
-        vbox.setContentsMargins(12, 12, 12, 12)
-        vbox.setSpacing(10)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(6)
 
         # Table
         self._prog_table = QTableWidget(0, 6)
@@ -985,14 +1087,22 @@ class MainWindow(QMainWindow):
         tool_row.addStretch()
         vbox.addLayout(tool_row)
 
-        # Run button
+        # Run row
+        run_row = QHBoxLayout()
         self._btn_run_prog = QPushButton("▶▶  Run Program")
         self._btn_run_prog.setObjectName("successBtn")
         self._btn_run_prog.setMinimumHeight(44)
         self._btn_run_prog.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         self._btn_run_prog.clicked.connect(self._do_run_program)
-        vbox.addWidget(self._btn_run_prog)
-
+        
+        self._btn_stop_prog = QPushButton("🛑  STOP")
+        self._btn_stop_prog.setObjectName("dangerBtn")
+        self._btn_stop_prog.setMinimumHeight(44)
+        self._btn_stop_prog.clicked.connect(self._do_abort)
+        
+        run_row.addWidget(self._btn_run_prog, 3)
+        run_row.addWidget(self._btn_stop_prog, 1)
+        vbox.addLayout(run_row)
         self._lbl_prog_duration = QLabel("")
         self._lbl_prog_duration.setStyleSheet(
             f"color: {ACCENT}; font-size: 13px; font-weight: 700;")
@@ -1044,8 +1154,8 @@ class MainWindow(QMainWindow):
 
         w = QWidget()
         vbox = QVBoxLayout(w)
-        vbox.setContentsMargins(12, 12, 12, 12)
-        vbox.setSpacing(14)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(8)
 
         # ── Syringe setup ─────────────────────────────────────────────────────
         setup_group = QGroupBox("Syringe Setup")
@@ -1468,6 +1578,144 @@ class MainWindow(QMainWindow):
             self._lbl_ul_badge.setText("(confirm syringe settings to unlock)")
             self._lbl_ul_badge.setStyleSheet(f"color: {TEXT_SEC}; font-size: 11px;")
 
+    # ── Time-unit toggle handlers ─────────────────────────────────────────────
+    def _speed_suffix(self) -> str:
+        """Return current speed display suffix, e.g. 'mm/s' or 'µL/min'."""
+        unit = self._vol_unit if self._rb_unit_ul.isChecked() else "mm"
+        time = "min" if self._rb_spd_per_min.isChecked() else "s"
+        return f"  {unit}/{time}"
+
+    def _accel_suffix(self) -> str:
+        """Return current accel display suffix."""
+        unit = self._vol_unit if self._rb_unit_ul.isChecked() else "mm"
+        time = "min²" if self._rb_acc_per_min.isChecked() else "s²"
+        return f"  {unit}/{time}"
+
+    def _speed_steps_to_display(self, steps_per_s: float) -> float:
+        """Convert steps/s to current display value."""
+        ul_mode = self._rb_unit_ul.isChecked()
+        if ul_mode:
+            spu = self._steps_per_ul_current()
+            scale = self._vol_scales[self._vol_unit]
+            base = steps_per_s / spu * scale if spu > 0 else 0.0
+        else:
+            base = steps_per_s * MM_PER_STEP
+        return base * self._speed_time_scale
+
+    def _accel_steps_to_display(self, steps_per_s2: float) -> float:
+        """Convert steps/s² to current display value."""
+        ul_mode = self._rb_unit_ul.isChecked()
+        if ul_mode:
+            spu = self._steps_per_ul_current()
+            scale = self._vol_scales[self._vol_unit]
+            base = steps_per_s2 / spu * scale if spu > 0 else 0.0
+        else:
+            base = steps_per_s2 * MM_PER_STEP
+        return base * self._accel_time_scale
+
+    def _display_to_speed_steps(self, display_val: float) -> int:
+        """Convert display speed value to integer steps/s for firmware."""
+        val_per_s = display_val / self._speed_time_scale
+        ul_mode = self._rb_unit_ul.isChecked()
+        if ul_mode:
+            spu = self._steps_per_ul_current()
+            scale = self._vol_scales[self._vol_unit]
+            return max(1, min(1000, round(val_per_s * spu / scale)))
+        return max(1, min(1000, round(val_per_s / MM_PER_STEP)))
+
+    def _display_to_accel_steps(self, display_val: float) -> int:
+        """Convert display accel value to integer steps/s² for firmware."""
+        val_per_s2 = display_val / self._accel_time_scale
+        ul_mode = self._rb_unit_ul.isChecked()
+        if ul_mode:
+            spu = self._steps_per_ul_current()
+            scale = self._vol_scales[self._vol_unit]
+            return max(-1000, min(1000, round(val_per_s2 * spu / scale)))
+        return max(-1000, min(1000, round(val_per_s2 / MM_PER_STEP)))
+
+    def _update_speed_range_hint(self):
+        """Recompute and display the speed range label."""
+        mn_disp = self._speed_steps_to_display(1.0)
+        mx_disp = self._speed_steps_to_display(1000.0)
+        suf = self._speed_suffix().strip()
+        self._lbl_speed_range.setText(
+            f"Range: {mn_disp:.4g} – {mx_disp:.4g} {suf}  (1 – 1000 steps/s)")
+
+    def _update_accel_range_hint(self):
+        """Recompute and display the accel range label."""
+        mx_disp = self._accel_steps_to_display(1000.0)
+        suf = self._accel_suffix().strip()
+        self._lbl_accel_range.setText(
+            f"Range: ±{mx_disp:.4g} {suf}  (0 = constant speed, max ±1000 steps/s²)")
+
+    def _apply_speed_time_scale(self, new_scale: float):
+        """Rescale the speed spinner values and ranges to the new time scale."""
+        old_scale = self._speed_time_scale
+        self._speed_time_scale = new_scale
+        ratio = new_scale / old_scale
+
+        ul_mode = self._rb_unit_ul.isChecked()
+        unit = self._vol_unit if ul_mode else "mm"
+        time_label = "min" if new_scale == 60.0 else "s"
+        suf = f"  {unit}/{time_label}"
+
+        for spin in (self._spin_start_speed, self._spin_end_speed):
+            cur = spin.value() * ratio
+            lo, hi = spin.minimum() * ratio, spin.maximum() * ratio
+            spin.setRange(lo, hi)
+            spin.setSuffix(suf)
+            spin.setValue(round(cur, 4))
+
+        # Keep sliders in sync (steps/s, not affected by time scale)
+        if not ul_mode:
+            self._syncing_speed = True
+            try:
+                self._slider_start_speed.setValue(
+                    max(1, round(self._spin_start_speed.value() / (MM_PER_STEP * new_scale))))
+                self._slider_end_speed.setValue(
+                    max(1, round(self._spin_end_speed.value() / (MM_PER_STEP * new_scale))))
+            finally:
+                self._syncing_speed = False
+        self._update_speed_range_hint()
+
+    def _apply_accel_time_scale(self, new_scale: float):
+        """Rescale the accel spinner values and ranges to the new time scale."""
+        old_scale = self._accel_time_scale
+        self._accel_time_scale = new_scale
+        ratio = new_scale / old_scale
+
+        ul_mode = self._rb_unit_ul.isChecked()
+        unit = self._vol_unit if ul_mode else "mm"
+        time_label = "min²" if new_scale == 3600.0 else "s²"
+        suf = f"  {unit}/{time_label}"
+
+        cur = self._spin_accel.value() * ratio
+        lo, hi = self._spin_accel.minimum() * ratio, self._spin_accel.maximum() * ratio
+        self._spin_accel.setRange(lo, hi)
+        self._spin_accel.setSuffix(suf)
+        self._spin_accel.setValue(round(cur, 4))
+
+        if not ul_mode:
+            self._syncing_speed = True
+            try:
+                self._slider_accel.setValue(
+                    max(0, round(self._spin_accel.value() / (MM_PER_STEP * new_scale))))
+            finally:
+                self._syncing_speed = False
+        self._update_accel_range_hint()
+
+    @pyqtSlot(bool)
+    def _on_speed_time_unit_changed(self, per_s_checked: bool):
+        new_scale = 1.0 if per_s_checked else 60.0
+        if new_scale != self._speed_time_scale:
+            self._apply_speed_time_scale(new_scale)
+
+    @pyqtSlot(bool)
+    def _on_accel_time_unit_changed(self, per_s2_checked: bool):
+        new_scale = 1.0 if per_s2_checked else 3600.0
+        if new_scale != self._accel_time_scale:
+            self._apply_accel_time_scale(new_scale)
+
     @pyqtSlot(bool)
     def _on_unit_mode_changed(self, steps_is_checked: bool):
         """Switch all Manual Move spinners between mm and Volume modes."""
@@ -1496,36 +1744,49 @@ class MainWindow(QMainWindow):
             self._spin_dist.setSuffix(f"  {unit}")
             self._spin_dist.setValue(round(cur_mm * unit_per_mm, 3))
 
-            max_unit_s = 1000.0 * ul_per_step * scale
+            spd_ts  = self._speed_time_scale   # e.g. 1.0 or 60.0
+            acc_ts  = self._accel_time_scale   # e.g. 1.0 or 3600.0
+            max_unit_s  = 1000.0 * ul_per_step * scale   # in unit/s
+            max_unit_ts = max_unit_s * spd_ts            # in unit/time_unit
+            max_acc_ts  = max_unit_s * acc_ts
 
-            # Start speed mm/s → Unit/s
-            cur_start_mm = self._spin_start_speed.value()
+            spd_time_lbl = "min" if spd_ts == 60.0 else "s"
+            acc_time_lbl = "min²" if acc_ts == 3600.0 else "s²"
+            spd_suf = f"  {unit}/{spd_time_lbl}"
+            acc_suf = f"  {unit}/{acc_time_lbl}"
+
+            # Start speed mm/s → Unit/time_unit
+            cur_start_mm = self._spin_start_speed.value() / (MM_PER_STEP * spd_ts) if spd_ts != 1.0 or True else self._spin_start_speed.value()
+            # Convert via steps: old display → steps/s → new display
+            old_start_steps = self._display_to_speed_steps(self._spin_start_speed.value())
             self._spin_start_speed.setDecimals(4)
-            self._spin_start_speed.setSingleStep(ul_per_step * scale)
-            self._spin_start_speed.setRange(0.0001, max_unit_s)
-            self._spin_start_speed.setSuffix(f"  {unit}/s")
-            self._spin_start_speed.setValue(round(cur_start_mm * unit_per_mm, 4))
+            self._spin_start_speed.setSingleStep(ul_per_step * scale * spd_ts)
+            self._spin_start_speed.setRange(0.0001 * spd_ts, max_unit_ts)
+            self._spin_start_speed.setSuffix(spd_suf)
+            self._spin_start_speed.setValue(round(old_start_steps * ul_per_step * scale * spd_ts, 4))
 
-            # End speed mm/s → Unit/s
-            cur_end_mm = self._spin_end_speed.value()
+            # End speed
+            old_end_steps = self._display_to_speed_steps(self._spin_end_speed.value())
             self._spin_end_speed.setDecimals(4)
-            self._spin_end_speed.setSingleStep(ul_per_step * scale)
-            self._spin_end_speed.setRange(0.0001, max_unit_s)
-            self._spin_end_speed.setSuffix(f"  {unit}/s")
-            self._spin_end_speed.setValue(round(cur_end_mm * unit_per_mm, 4))
+            self._spin_end_speed.setSingleStep(ul_per_step * scale * spd_ts)
+            self._spin_end_speed.setRange(0.0001 * spd_ts, max_unit_ts)
+            self._spin_end_speed.setSuffix(spd_suf)
+            self._spin_end_speed.setValue(round(old_end_steps * ul_per_step * scale * spd_ts, 4))
 
-            # Accel mm/s² → Unit/s²
-            cur_accel_mm = self._spin_accel.value()
+            # Accel mm/s² → Unit/time_unit²
+            old_accel_steps = self._display_to_accel_steps(self._spin_accel.value())
             self._spin_accel.setDecimals(4)
-            self._spin_accel.setSingleStep(ul_per_step * scale)
-            self._spin_accel.setRange(-max_unit_s, max_unit_s)
-            self._spin_accel.setSuffix(f"  {unit}/s²")
-            self._spin_accel.setValue(round(cur_accel_mm * unit_per_mm, 4))
+            self._spin_accel.setSingleStep(ul_per_step * scale * acc_ts)
+            self._spin_accel.setRange(-max_acc_ts, max_acc_ts)
+            self._spin_accel.setSuffix(acc_suf)
+            self._spin_accel.setValue(round(old_accel_steps * ul_per_step * scale * acc_ts, 4))
 
             self._slider_start_speed.setVisible(False)
             self._slider_end_speed.setVisible(False)
             self._slider_accel.setVisible(False)
             self._lbl_rev.setText("")
+            self._update_speed_range_hint()
+            self._update_accel_range_hint()
         else:
             # Unit → mm
             cur_unit = self._spin_dist.value()
@@ -1536,40 +1797,48 @@ class MainWindow(QMainWindow):
             self._spin_dist.setSuffix("  mm")
             self._spin_dist.setValue(max(0.001, round(dist_steps * MM_PER_STEP, 3)))
 
-            # Start speed Unit/s → mm/s
-            cur_start_unit = self._spin_start_speed.value()
-            start_steps = max(1, min(1000, round((cur_start_unit / scale) * spu))) if spu > 0 else 100
+            spd_ts = self._speed_time_scale
+            acc_ts = self._accel_time_scale
+            spd_time_lbl = "min" if spd_ts == 60.0 else "s"
+            acc_time_lbl = "min²" if acc_ts == 3600.0 else "s²"
+
+            # Start speed: convert via steps/s then to mm * time_scale
+            old_start_steps = self._display_to_speed_steps(self._spin_start_speed.value())
             self._spin_start_speed.setDecimals(4)
-            self._spin_start_speed.setSingleStep(MM_PER_STEP)
-            self._spin_start_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
-            self._spin_start_speed.setSuffix(" mm/s")
-            self._spin_start_speed.setValue(round(start_steps * MM_PER_STEP, 4))
+            self._spin_start_speed.setSingleStep(MM_PER_STEP * spd_ts)
+            self._spin_start_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(1000 * MM_PER_STEP * spd_ts, 4))
+            self._spin_start_speed.setSuffix(f" mm/{spd_time_lbl}")
+            self._spin_start_speed.setValue(round(old_start_steps * MM_PER_STEP * spd_ts, 4))
 
-            # End speed Unit/s → mm/s
-            cur_end_unit = self._spin_end_speed.value()
-            end_steps = max(1, min(1000, round((cur_end_unit / scale) * spu))) if spu > 0 else 300
+            # End speed
+            old_end_steps = self._display_to_speed_steps(self._spin_end_speed.value())
             self._spin_end_speed.setDecimals(4)
-            self._spin_end_speed.setSingleStep(MM_PER_STEP)
-            self._spin_end_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
-            self._spin_end_speed.setSuffix(" mm/s")
-            self._spin_end_speed.setValue(round(end_steps * MM_PER_STEP, 4))
+            self._spin_end_speed.setSingleStep(MM_PER_STEP * spd_ts)
+            self._spin_end_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(1000 * MM_PER_STEP * spd_ts, 4))
+            self._spin_end_speed.setSuffix(f" mm/{spd_time_lbl}")
+            self._spin_end_speed.setValue(round(old_end_steps * MM_PER_STEP * spd_ts, 4))
 
-            # Accel Unit/s² → mm/s²
-            cur_accel_unit = self._spin_accel.value()
-            accel_steps = max(-1000, min(1000, round((cur_accel_unit / scale) * spu))) if spu > 0 else 100
+            # Accel
+            old_accel_steps = self._display_to_accel_steps(self._spin_accel.value())
             self._spin_accel.setDecimals(4)
-            self._spin_accel.setSingleStep(MM_PER_STEP)
-            self._spin_accel.setRange(round(-1000 * MM_PER_STEP, 4), round(1000 * MM_PER_STEP, 4))
-            self._spin_accel.setSuffix(" mm/s²")
-            self._spin_accel.setValue(round(accel_steps * MM_PER_STEP, 4))
+            self._spin_accel.setSingleStep(MM_PER_STEP * acc_ts)
+            self._spin_accel.setRange(round(-1000 * MM_PER_STEP * acc_ts, 4), round(1000 * MM_PER_STEP * acc_ts, 4))
+            self._spin_accel.setSuffix(f" mm/{acc_time_lbl}")
+            self._spin_accel.setValue(round(old_accel_steps * MM_PER_STEP * acc_ts, 4))
 
-            self._slider_start_speed.setValue(start_steps)
-            self._slider_end_speed.setValue(end_steps)
-            self._slider_accel.setValue(max(0, accel_steps))
+            self._syncing_speed = True
+            try:
+                self._slider_start_speed.setValue(old_start_steps)
+                self._slider_end_speed.setValue(old_end_steps)
+                self._slider_accel.setValue(max(0, old_accel_steps))
+            finally:
+                self._syncing_speed = False
             self._slider_start_speed.setVisible(True)
             self._slider_end_speed.setVisible(True)
             self._slider_accel.setVisible(True)
             self._update_rev_label(self._spin_dist.value())
+            self._update_speed_range_hint()
+            self._update_accel_range_hint()
 
         self._update_dur_display()
         self._refresh_program_table()
@@ -1633,15 +1902,14 @@ class MainWindow(QMainWindow):
         if ul_mode:
             spu = self._steps_per_ul_current()
             scale = self._vol_scales[self._vol_unit]
-            dist_steps   = max(1, round(self._spin_dist.value()        * spu / scale))
-            start_steps  = max(1, min(1000, round(self._spin_start_speed.value() * spu / scale)))
-            end_steps    = max(1, min(1000, round(self._spin_end_speed.value()   * spu / scale)))
-            accel_steps  = max(-1000, min(1000, round(self._spin_accel.value()   * spu / scale)))
+            dist_steps = max(1, round(self._spin_dist.value() * spu / scale))
         else:
-            dist_steps   = max(1, round(self._spin_dist.value()        / MM_PER_STEP))
-            start_steps  = max(1, min(1000, round(self._spin_start_speed.value() / MM_PER_STEP)))
-            end_steps    = max(1, min(1000, round(self._spin_end_speed.value()   / MM_PER_STEP)))
-            accel_steps  = max(-1000, min(1000, round(self._spin_accel.value()   / MM_PER_STEP)))
+            dist_steps = max(1, round(self._spin_dist.value() / MM_PER_STEP))
+
+        start_steps = self._display_to_speed_steps(self._spin_start_speed.value())
+        end_steps   = self._display_to_speed_steps(self._spin_end_speed.value())
+        accel_steps = self._display_to_accel_steps(self._spin_accel.value())
+
         step = ProgramStep(
             forward=self.rb_man_fwd.isChecked(),
             distance=dist_steps,
@@ -1660,6 +1928,12 @@ class MainWindow(QMainWindow):
             f"color: {TEXT_SEC}; font-family: 'Courier New', monospace;"
             f" font-size: 18px; font-weight: 700; min-width: 90px;")
         self._send_raw("X")
+
+    def keyPressEvent(self, event):
+        """Handle global key shortcuts."""
+        if event.key() == Qt.Key.Key_Escape:
+            self._do_abort()
+        super().keyPressEvent(event)
 
     def _do_add_step(self):
         if len(self._program) >= 5:
@@ -1824,7 +2098,6 @@ class MainWindow(QMainWindow):
         moving = (state == self.ST_MOVING)
         self._btn_move.setEnabled(not moving and self._worker.is_connected)
         self._btn_run_prog.setEnabled(not moving and self._worker.is_connected)
-        self._btn_abort.setEnabled(moving)
         self._btn_add_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_del_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_clear_prog.setEnabled(not moving and self._worker.is_connected)
@@ -1845,7 +2118,6 @@ class MainWindow(QMainWindow):
     def _update_controls_for_connection(self, connected: bool):
         self._btn_move.setEnabled(connected)
         self._btn_run_prog.setEnabled(connected)
-        self._btn_abort.setEnabled(False)
         self._btn_add_step.setEnabled(connected)
         self._btn_del_step.setEnabled(connected)
         self._btn_clear_prog.setEnabled(connected)
