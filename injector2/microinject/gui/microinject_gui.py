@@ -486,7 +486,7 @@ class AddStepDialog(QDialog):
             self.spin_dist.setSuffix(f"  {unit}")
             form.addRow(f"Volume ({unit}):", self.spin_dist)
 
-            max_disp_s = 1000.0 * ul_per_step * display_scale
+            max_disp_s = 600.0 * ul_per_step * display_scale
 
             # Start speed
             self.spin_start_speed = QDoubleSpinBox()
@@ -507,9 +507,8 @@ class AddStepDialog(QDialog):
             form.addRow(f"End flow ({unit}/s):", self.spin_end_speed)
 
             # Accel in display unit/s²
-            self.spin_accel = QDoubleSpinBox()
-            self.spin_accel.setDecimals(4)
-            self.spin_accel.setRange(-max_disp_s, max_disp_s)
+            max_disp_a = 400.0 * ul_per_step * display_scale
+            self.spin_accel.setRange(-max_disp_a, max_disp_a)
             self.spin_accel.setSpecialValueText("0  (constant speed)")
             self.spin_accel.setValue(
                 round((step.accel if step else 100) * ul_per_step * display_scale, 4))
@@ -528,21 +527,21 @@ class AddStepDialog(QDialog):
             form.addRow("Distance:", self.spin_dist)
 
             self.spin_start_speed = QDoubleSpinBox()
-            self.spin_start_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
+            self.spin_start_speed.setRange(round(MM_PER_STEP, 5), round(600 * MM_PER_STEP, 4))
             self.spin_start_speed.setValue(round((step.start_speed if step else 100) * MM_PER_STEP, 4))
             self.spin_start_speed.setDecimals(4)
             self.spin_start_speed.setSuffix("  mm/s")
             form.addRow("Start speed:", self.spin_start_speed)
 
             self.spin_end_speed = QDoubleSpinBox()
-            self.spin_end_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
+            self.spin_end_speed.setRange(round(MM_PER_STEP, 5), round(600 * MM_PER_STEP, 4))
             self.spin_end_speed.setValue(round((step.end_speed if step else 300) * MM_PER_STEP, 4))
             self.spin_end_speed.setDecimals(4)
             self.spin_end_speed.setSuffix("  mm/s")
             form.addRow("End speed:", self.spin_end_speed)
 
             self.spin_accel = QDoubleSpinBox()
-            self.spin_accel.setRange(round(-1000 * MM_PER_STEP, 4), round(1000 * MM_PER_STEP, 4))
+            self.spin_accel.setRange(round(-400 * MM_PER_STEP, 4), round(400 * MM_PER_STEP, 4))
             self.spin_accel.setValue(round((step.accel if step else 100) * MM_PER_STEP, 4))
             self.spin_accel.setDecimals(4)
             self.spin_accel.setSuffix("  mm/s²")
@@ -598,16 +597,16 @@ class AddStepDialog(QDialog):
             return ProgramStep(
                 forward=self.rb_fwd.isChecked(),
                 distance=max(1, round(self.spin_dist.value() * s2u * spu)),
-                start_speed=max(1, min(1000, round(self.spin_start_speed.value() * s2u * spu))),
-                end_speed=max(1, min(1000, round(self.spin_end_speed.value() * s2u * spu))),
-                accel=max(-1000, min(1000, round(self.spin_accel.value() * s2u * spu))),
+                start_speed=max(1, min(600, round(self.spin_start_speed.value() * s2u * spu))),
+                end_speed=max(1, min(600, round(self.spin_end_speed.value() * s2u * spu))),
+                accel=max(-400, min(400, round(self.spin_accel.value() * s2u * spu))),
             )
         return ProgramStep(
             forward=self.rb_fwd.isChecked(),
             distance=max(1, round(self.spin_dist.value() / MM_PER_STEP)),
-            start_speed=max(1, min(1000, round(self.spin_start_speed.value() / MM_PER_STEP))),
-            end_speed=max(1, min(1000, round(self.spin_end_speed.value() / MM_PER_STEP))),
-            accel=max(-1000, min(1000, round(self.spin_accel.value() / MM_PER_STEP))),
+            start_speed=max(1, min(600, round(self.spin_start_speed.value() / MM_PER_STEP))),
+            end_speed=max(1, min(600, round(self.spin_end_speed.value() / MM_PER_STEP))),
+            accel=max(-400, min(400, round(self.spin_accel.value() / MM_PER_STEP))),
         )
 
 
@@ -860,10 +859,10 @@ class MainWindow(QMainWindow):
         start_lbl = QLabel("Start:")
         start_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 12px; min-width: 34px;")
         self._slider_start_speed = QSlider(Qt.Orientation.Horizontal)
-        self._slider_start_speed.setRange(1, 1000)
+        self._slider_start_speed.setRange(1, 600)
         self._slider_start_speed.setValue(100)
         self._spin_start_speed = QDoubleSpinBox()
-        self._spin_start_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
+        self._spin_start_speed.setRange(round(MM_PER_STEP, 5), round(600 * MM_PER_STEP, 4))
         self._spin_start_speed.setValue(round(100 * MM_PER_STEP, 4))
         self._spin_start_speed.setDecimals(4)
         self._spin_start_speed.setSuffix(" mm/s")
@@ -878,10 +877,10 @@ class MainWindow(QMainWindow):
         end_lbl = QLabel("End:")
         end_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 12px; min-width: 34px;")
         self._slider_end_speed = QSlider(Qt.Orientation.Horizontal)
-        self._slider_end_speed.setRange(1, 1000)
+        self._slider_end_speed.setRange(1, 600)
         self._slider_end_speed.setValue(300)
         self._spin_end_speed = QDoubleSpinBox()
-        self._spin_end_speed.setRange(round(MM_PER_STEP, 5), round(1000 * MM_PER_STEP, 4))
+        self._spin_end_speed.setRange(round(MM_PER_STEP, 5), round(600 * MM_PER_STEP, 4))
         self._spin_end_speed.setValue(round(300 * MM_PER_STEP, 4))
         self._spin_end_speed.setDecimals(4)
         self._spin_end_speed.setSuffix(" mm/s")
@@ -905,8 +904,8 @@ class MainWindow(QMainWindow):
 
         # Range hint
         self._lbl_speed_range = QLabel(
-            f"Range: {round(MM_PER_STEP, 5)} – {round(1000 * MM_PER_STEP, 4)} mm/s"
-            f"  (1 – 1000 steps/s)")
+            f"Range: {round(MM_PER_STEP, 5)} – {round(600 * MM_PER_STEP, 4)} mm/s"
+            f"  (1 – 600 steps/s)")
         self._lbl_speed_range.setStyleSheet(
             f"color: {TEXT_SEC}; font-size: 11px; font-style: italic;")
         speed_vlay.addWidget(self._lbl_speed_range)
@@ -981,10 +980,10 @@ class MainWindow(QMainWindow):
         accel_layout = QHBoxLayout(accel_row_widget)
         accel_layout.setContentsMargins(0, 0, 0, 0)
         self._slider_accel = QSlider(Qt.Orientation.Horizontal)
-        self._slider_accel.setRange(0, 1000)
+        self._slider_accel.setRange(0, 400)
         self._slider_accel.setValue(100)
         self._spin_accel = QDoubleSpinBox()
-        self._spin_accel.setRange(round(-1000 * MM_PER_STEP, 4), round(1000 * MM_PER_STEP, 4))
+        self._spin_accel.setRange(round(-400 * MM_PER_STEP, 4), round(400 * MM_PER_STEP, 4))
         self._spin_accel.setValue(round(100 * MM_PER_STEP, 4))
         self._spin_accel.setDecimals(4)
         self._spin_accel.setSuffix(" mm/s²")
@@ -1014,7 +1013,7 @@ class MainWindow(QMainWindow):
         accel_layout.addWidget(self._spin_accel)
         accel_group_vlay.addWidget(accel_row_widget)
         self._lbl_accel_range = QLabel(
-            f"Range: ±{round(1000 * MM_PER_STEP, 4)} mm/s²  (0 = constant speed,  max ±1000 steps/s²)")
+            f"Range: ±{round(400 * MM_PER_STEP, 4)} mm/s²  (0 = constant speed,  max ±400 steps/s²)")
         self._lbl_accel_range.setStyleSheet(
             f"color: {TEXT_SEC}; font-size: 11px; font-style: italic;")
         accel_group_vlay.addWidget(self._lbl_accel_range)
@@ -1467,14 +1466,14 @@ class MainWindow(QMainWindow):
         if ul_mode and spu > 0:
             scale = self._vol_scales[self._vol_unit]
             d  = max(1, round(self._spin_dist.value() * spu / scale))
-            v0 = max(1, min(1000, round(self._spin_start_speed.value() * spu / scale)))
-            v1 = max(1, min(1000, round(self._spin_end_speed.value() * spu / scale)))
-            a  = max(-1000, min(1000, round(self._spin_accel.value() * spu / scale)))
+            v0 = max(1, min(600, round(self._spin_start_speed.value() * spu / scale)))
+            v1 = max(1, min(600, round(self._spin_end_speed.value() * spu / scale)))
+            a  = max(-400, min(400, round(self._spin_accel.value() * spu / scale)))
         else:
             d  = max(1, round(self._spin_dist.value()       / MM_PER_STEP))
-            v0 = max(1, min(1000, round(self._spin_start_speed.value() / MM_PER_STEP)))
-            v1 = max(1, min(1000, round(self._spin_end_speed.value()   / MM_PER_STEP)))
-            a  = max(-1000, min(1000, round(self._spin_accel.value()   / MM_PER_STEP)))
+            v0 = max(1, min(600, round(self._spin_start_speed.value() / MM_PER_STEP)))
+            v1 = max(1, min(600, round(self._spin_end_speed.value()   / MM_PER_STEP)))
+            a  = max(-400, min(400, round(self._spin_accel.value()   / MM_PER_STEP)))
         step = ProgramStep(distance=d, start_speed=v0, end_speed=v1, accel=a)
         dur = self._calculate_step_duration(step)
         if dur >= 60:
@@ -1620,8 +1619,8 @@ class MainWindow(QMainWindow):
         if ul_mode:
             spu = self._steps_per_ul_current()
             scale = self._vol_scales[self._vol_unit]
-            return max(1, min(1000, round(val_per_s * spu / scale)))
-        return max(1, min(1000, round(val_per_s / MM_PER_STEP)))
+            return max(1, min(600, round(val_per_s * spu / scale)))
+        return max(1, min(600, round(val_per_s / MM_PER_STEP)))
 
     def _display_to_accel_steps(self, display_val: float) -> int:
         """Convert display accel value to integer steps/s² for firmware."""
@@ -1630,23 +1629,23 @@ class MainWindow(QMainWindow):
         if ul_mode:
             spu = self._steps_per_ul_current()
             scale = self._vol_scales[self._vol_unit]
-            return max(-1000, min(1000, round(val_per_s2 * spu / scale)))
-        return max(-1000, min(1000, round(val_per_s2 / MM_PER_STEP)))
+            return max(-400, min(400, round(val_per_s2 * spu / scale)))
+        return max(-400, min(400, round(val_per_s2 / MM_PER_STEP)))
 
     def _update_speed_range_hint(self):
         """Recompute and display the speed range label."""
         mn_disp = self._speed_steps_to_display(1.0)
-        mx_disp = self._speed_steps_to_display(1000.0)
+        mx_disp = self._speed_steps_to_display(600.0)
         suf = self._speed_suffix().strip()
         self._lbl_speed_range.setText(
-            f"Range: {mn_disp:.4g} – {mx_disp:.4g} {suf}  (1 – 1000 steps/s)")
+            f"Range: {mn_disp:.4g} – {mx_disp:.4g} {suf}  (1 – 600 steps/s)")
 
     def _update_accel_range_hint(self):
         """Recompute and display the accel range label."""
-        mx_disp = self._accel_steps_to_display(1000.0)
+        mx_disp = self._accel_steps_to_display(400.0)
         suf = self._accel_suffix().strip()
         self._lbl_accel_range.setText(
-            f"Range: ±{mx_disp:.4g} {suf}  (0 = constant speed, max ±1000 steps/s²)")
+            f"Range: ±{mx_disp:.4g} {suf}  (0 = constant speed, max ±400 steps/s²)")
 
     def _apply_speed_time_scale(self, new_scale: float):
         """Rescale the speed spinner values and ranges to the new time scale."""
@@ -1746,7 +1745,7 @@ class MainWindow(QMainWindow):
 
             spd_ts  = self._speed_time_scale   # e.g. 1.0 or 60.0
             acc_ts  = self._accel_time_scale   # e.g. 1.0 or 3600.0
-            max_unit_s  = 1000.0 * ul_per_step * scale   # in unit/s
+            max_unit_s  = 600.0 * ul_per_step * scale   # in unit/s
             max_unit_ts = max_unit_s * spd_ts            # in unit/time_unit
             max_acc_ts  = max_unit_s * acc_ts
 
@@ -1806,7 +1805,7 @@ class MainWindow(QMainWindow):
             old_start_steps = self._display_to_speed_steps(self._spin_start_speed.value())
             self._spin_start_speed.setDecimals(4)
             self._spin_start_speed.setSingleStep(MM_PER_STEP * spd_ts)
-            self._spin_start_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(1000 * MM_PER_STEP * spd_ts, 4))
+            self._spin_start_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(600 * MM_PER_STEP * spd_ts, 4))
             self._spin_start_speed.setSuffix(f" mm/{spd_time_lbl}")
             self._spin_start_speed.setValue(round(old_start_steps * MM_PER_STEP * spd_ts, 4))
 
@@ -1814,7 +1813,7 @@ class MainWindow(QMainWindow):
             old_end_steps = self._display_to_speed_steps(self._spin_end_speed.value())
             self._spin_end_speed.setDecimals(4)
             self._spin_end_speed.setSingleStep(MM_PER_STEP * spd_ts)
-            self._spin_end_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(1000 * MM_PER_STEP * spd_ts, 4))
+            self._spin_end_speed.setRange(round(MM_PER_STEP * spd_ts, 5), round(600 * MM_PER_STEP * spd_ts, 4))
             self._spin_end_speed.setSuffix(f" mm/{spd_time_lbl}")
             self._spin_end_speed.setValue(round(old_end_steps * MM_PER_STEP * spd_ts, 4))
 
@@ -1822,7 +1821,7 @@ class MainWindow(QMainWindow):
             old_accel_steps = self._display_to_accel_steps(self._spin_accel.value())
             self._spin_accel.setDecimals(4)
             self._spin_accel.setSingleStep(MM_PER_STEP * acc_ts)
-            self._spin_accel.setRange(round(-1000 * MM_PER_STEP * acc_ts, 4), round(1000 * MM_PER_STEP * acc_ts, 4))
+            self._spin_accel.setRange(round(-400 * MM_PER_STEP * acc_ts, 4), round(400 * MM_PER_STEP * acc_ts, 4))
             self._spin_accel.setSuffix(f" mm/{acc_time_lbl}")
             self._spin_accel.setValue(round(old_accel_steps * MM_PER_STEP * acc_ts, 4))
 
