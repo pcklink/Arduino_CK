@@ -63,54 +63,54 @@ from PyQt6.QtWidgets import (
 # ─────────────────────────────────────────────────────────────────────────────
 #  Colour palette
 # ─────────────────────────────────────────────────────────────────────────────
-DARK_BG     = "#1e1e2e"
+DARK_BG     = "#0f1117"
 
 # Physical constants (lead screw: 0.8 mm/rev, 2048 steps/rev)
 MM_PER_STEP = 0.8 / 2048        # mm of linear travel per motor step
 STEPS_PER_MM = 2048 / 0.8       # motor steps per mm
-PANEL_BG    = "#2a2a3e"
-CARD_BG     = "#313145"
-ACCENT      = "#00c8c8"   # teal
-ACCENT2     = "#7c5cbf"   # purple
-DANGER      = "#e05260"
-SUCCESS     = "#4caf89"
-TEXT_PRI    = "#e8e8f0"
-TEXT_SEC    = "#9090a8"
-BORDER      = "#44445a"
+PANEL_BG    = "#171b24"
+CARD_BG     = "#1e2330"
+ACCENT      = "#38bdf8"   # sky blue
+ACCENT2     = "#818cf8"   # indigo
+DANGER      = "#f87171"
+SUCCESS     = "#34d399"
+TEXT_PRI    = "#e2e8f0"
+TEXT_SEC    = "#7a8599"
+BORDER      = "#2a3040"
 
 STYLESHEET = f"""
 QMainWindow, QWidget {{
     background-color: {DARK_BG};
     color: {TEXT_PRI};
-    font-family: 'Segoe UI', 'Inter', 'Helvetica Neue', sans-serif;
+    font-family: 'Inter', 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif;
     font-size: 13px;
 }}
 QGroupBox {{
     background-color: {PANEL_BG};
     border: 1px solid {BORDER};
-    border-radius: 8px;
-    margin-top: 10px;
-    padding: 10px;
+    border-radius: 10px;
+    margin-top: 12px;
+    padding: 12px;
     font-weight: 600;
     color: {ACCENT};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 6px;
-    left: 12px;
+    padding: 0 8px;
+    left: 14px;
 }}
 QTabWidget::pane {{
     border: 1px solid {BORDER};
     background: {PANEL_BG};
-    border-radius: 6px;
+    border-radius: 8px;
 }}
 QTabBar::tab {{
     background: {CARD_BG};
     color: {TEXT_SEC};
-    padding: 8px 20px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
+    padding: 8px 22px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
     margin-right: 2px;
     font-weight: 500;
 }}
@@ -121,81 +121,81 @@ QTabBar::tab:selected {{
 }}
 QTabBar::tab:hover:!selected {{
     color: {TEXT_PRI};
-    background: #3a3a55;
+    background: #252b3b;
 }}
 QPushButton {{
     background-color: {CARD_BG};
     color: {TEXT_PRI};
     border: 1px solid {BORDER};
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 6px 16px;
     font-weight: 500;
     min-height: 28px;
 }}
 QPushButton:hover {{
-    background-color: #3e3e58;
+    background-color: #252b3b;
     border-color: {ACCENT};
     color: {ACCENT};
 }}
 QPushButton:pressed {{
-    background-color: #252535;
+    background-color: #131720;
 }}
 QPushButton:disabled {{
-    color: {TEXT_SEC};
+    color: #4a5568;
     border-color: {BORDER};
     background-color: {CARD_BG};
 }}
 QPushButton#accentBtn {{
     background-color: {ACCENT};
-    color: #0d0d1a;
+    color: #0f1117;
     border: none;
     font-weight: 700;
     font-size: 14px;
 }}
 QPushButton#accentBtn:hover {{
-    background-color: #00dddd;
-    color: #0d0d1a;
+    background-color: #7dd3fc;
+    color: #0f1117;
 }}
 QPushButton#accentBtn:disabled {{
-    background-color: #2a4444;
-    color: #3a7070;
+    background-color: #1e3a5f;
+    color: #3a6a8a;
 }}
 QPushButton#dangerBtn {{
     background-color: {DANGER};
-    color: white;
-    border: 2px solid white;
+    color: #0f1117;
+    border: 2px solid #fca5a5;
     border-radius: 8px;
     font-weight: 800;
     font-size: 15px;
     letter-spacing: 1px;
 }}
 QPushButton#dangerBtn:hover {{
-    background-color: #ff5a6a;
-    border-color: #ffe0e0;
+    background-color: #fca5a5;
+    border-color: #fecaca;
 }}
 QPushButton#dangerBtn:disabled {{
-    background-color: #4a2530;
-    color: #7a4050;
-    border-color: #5a2a35;
+    background-color: #3b1f1f;
+    color: #6b3a3a;
+    border-color: #4a2828;
 }}
 QPushButton#successBtn {{
     background-color: {SUCCESS};
-    color: #0d1a14;
+    color: #0f1117;
     border: none;
     font-weight: 700;
 }}
 QPushButton#successBtn:hover {{
-    background-color: #5ccf9f;
+    background-color: #6ee7b7;
 }}
 QPushButton#successBtn:disabled {{
-    background-color: #1e3328;
-    color: #3a6050;
+    background-color: #1a332a;
+    color: #3a6858;
 }}
 QComboBox {{
     background-color: {CARD_BG};
     color: {TEXT_PRI};
     border: 1px solid {BORDER};
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 4px 10px;
     min-height: 26px;
 }}
@@ -205,14 +205,14 @@ QComboBox QAbstractItemView {{
     background-color: {CARD_BG};
     color: {TEXT_PRI};
     selection-background-color: {ACCENT};
-    selection-color: #0d0d1a;
+    selection-color: #0f1117;
     border: 1px solid {BORDER};
 }}
 QSpinBox, QDoubleSpinBox {{
     background-color: {CARD_BG};
     color: {TEXT_PRI};
     border: 1px solid {BORDER};
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 4px 6px;
     min-height: 26px;
 }}
@@ -240,22 +240,22 @@ QSlider::sub-page:horizontal {{
     border-radius: 2px;
 }}
 QTextEdit {{
-    background-color: #0d0d14;
-    color: #a0ffb0;
+    background-color: #0a0d12;
+    color: #a5f3c4;
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    font-family: 'Courier New', 'Consolas', monospace;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 12px;
-    padding: 6px;
+    padding: 8px;
 }}
 QTableWidget {{
     background-color: {CARD_BG};
     color: {TEXT_PRI};
     border: 1px solid {BORDER};
-    border-radius: 6px;
+    border-radius: 8px;
     gridline-color: {BORDER};
     selection-background-color: {ACCENT};
-    selection-color: #0d0d1a;
+    selection-color: #0f1117;
 }}
 QTableWidget::item {{ padding: 4px 8px; }}
 QHeaderView::section {{
@@ -297,7 +297,7 @@ QLabel#valueLabel {{
     color: {ACCENT};
     font-size: 20px;
     font-weight: 700;
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }}
 QFrame#divider {{
     background: {BORDER};
@@ -308,6 +308,40 @@ QDialog {{
 }}
 QDialogButtonBox QPushButton {{
     min-width: 80px;
+}}
+QScrollBar:vertical {{
+    background: {DARK_BG};
+    width: 10px;
+    border-radius: 5px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {BORDER};
+    border-radius: 5px;
+    min-height: 30px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: #3d4660;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+QScrollBar:horizontal {{
+    background: {DARK_BG};
+    height: 10px;
+    border-radius: 5px;
+    margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: {BORDER};
+    border-radius: 5px;
+    min-width: 30px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: #3d4660;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0;
 }}
 """
 

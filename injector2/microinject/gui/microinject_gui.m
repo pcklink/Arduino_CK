@@ -101,17 +101,17 @@ classdef microinject_gui < handle
     end
     
     properties (Constant)
-        % Colour Palette (Python Replica)
-        DARK_BG     = '#1e1e2e'
-        PANEL_BG    = '#2a2a3e'
-        CARD_BG     = '#313145'
-        ACCENT      = '#00c8c8' % teal
-        ACCENT2     = '#7c5cbf' % purple
-        DANGER      = '#e05260'
-        SUCCESS     = '#4caf89'
-        TEXT_PRI    = '#e8e8f0'
-        TEXT_SEC    = '#9090a8'
-        BORDER      = '#44445a'
+        % Colour Palette (Python Replica – modern dark)
+        DARK_BG     = '#0f1117'
+        PANEL_BG    = '#171b24'
+        CARD_BG     = '#1e2330'
+        ACCENT      = '#38bdf8' % sky blue
+        ACCENT2     = '#818cf8' % indigo
+        DANGER      = '#f87171'
+        SUCCESS     = '#34d399'
+        TEXT_PRI    = '#e2e8f0'
+        TEXT_SEC    = '#7a8599'
+        BORDER      = '#2a3040'
     end
     
     methods
@@ -203,8 +203,8 @@ classdef microinject_gui < handle
             ll = uigridlayout(logPanel, [2, 1]);
             ll.RowHeight = {'1x', 30};
             
-            obj.LogArea = uitextarea(ll, 'Editable', 'off', 'BackgroundColor', '#0d0d14', ...
-                'FontColor', '#a0ffb0', 'FontName', 'Monospaced', 'FontSize', 12);
+            obj.LogArea = uitextarea(ll, 'Editable', 'off', 'BackgroundColor', '#0a0d12', ...
+                'FontColor', '#a5f3c4', 'FontName', 'Monospaced', 'FontSize', 12);
             
             uibutton(ll, 'Text', 'Clear Log', 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI, ...
                 'ButtonPushedFcn', @(~,~) set(obj.LogArea, 'Value', {}));
