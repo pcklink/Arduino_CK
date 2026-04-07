@@ -68,6 +68,18 @@ DARK_BG     = "#0f1117"
 # Physical constants (lead screw: 0.8 mm/rev, 2048 steps/rev)
 MM_PER_STEP = 0.8 / 2048        # mm of linear travel per motor step
 STEPS_PER_MM = 2048 / 0.8       # motor steps per mm
+
+# Hamilton 1700 series syringe presets  (label, volume_µL, stroke_mm)
+# All 1700-series models share the same 60 mm plunger stroke.
+HAMILTON_1700_PRESETS = [
+    ("Custom…",               None,  None),
+    ("1701 — 10 µL",          10.0,  60.0),
+    ("1702 — 25 µL",          25.0,  60.0),
+    ("1705 — 50 µL",          50.0,  60.0),
+    ("1710 — 100 µL",        100.0,  60.0),
+    ("1725 — 250 µL",        250.0,  60.0),
+    ("1750 — 500 µL",        500.0,  60.0),
+]
 PANEL_BG    = "#171b24"
 CARD_BG     = "#1e2330"
 ACCENT      = "#38bdf8"   # sky blue
@@ -1195,17 +1207,35 @@ class MainWindow(QMainWindow):
         setup_form = QFormLayout(setup_group)
         setup_form.setSpacing(10)
 
+        # ── Preset picker ─────────────────────────────────────────────────────
+        self._combo_syr_preset = QComboBox()
+        for label, _vol, _stroke in HAMILTON_1700_PRESETS:
+            self._combo_syr_preset.addItem(label)
+        self._combo_syr_preset.setToolTip(
+            "Select a Hamilton 1700 series syringe to auto-fill volume and stroke length.\n"
+            "Manually editing either field will reset this to \"Custom…\".")
+        preset_lbl = QLabel("Syringe preset:")
+        preset_lbl.setStyleSheet(f"color: {TEXT_SEC};")
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(self._combo_syr_preset, 1)
+        preset_info = QLabel("Hamilton 1700 series")
+        preset_info.setStyleSheet(
+            f"color: {TEXT_SEC}; font-size: 11px; font-style: italic;")
+        preset_row.addWidget(preset_info)
+        setup_form.addRow(preset_lbl, preset_row)
+
         self._spin_syr_vol = QDoubleSpinBox()
         self._spin_syr_vol.setRange(0.1, 1000000.0)
         self._spin_syr_vol.setValue(50.0)
         self._spin_syr_vol.setSuffix(f"  {self._vol_unit}")
         self._spin_syr_vol.setDecimals(1)
-        
+
         unit_selector = QComboBox()
+        self._combo_syr_unit = unit_selector          # keep a reference for preset logic
         unit_selector.addItems(["nL", "µL", "mL"])
         unit_selector.setCurrentText(self._vol_unit)
         unit_selector.currentTextChanged.connect(self._on_vol_unit_changed)
-        
+
         vol_layout = QHBoxLayout()
         vol_layout.addWidget(self._spin_syr_vol, 1)
         vol_layout.addWidget(unit_selector)
@@ -1213,7 +1243,7 @@ class MainWindow(QMainWindow):
 
         self._spin_syr_stroke = QDoubleSpinBox()
         self._spin_syr_stroke.setRange(0.1, 500.0)
-        self._spin_syr_stroke.setValue(30.0)
+        self._spin_syr_stroke.setValue(60.0)
         self._spin_syr_stroke.setSuffix("  mm")
         self._spin_syr_stroke.setDecimals(2)
         setup_form.addRow("Plunger stroke:", self._spin_syr_stroke)
@@ -1295,12 +1325,16 @@ class MainWindow(QMainWindow):
         vbox.addStretch()
 
         # Wire signals — also connect syringe spinners to re-run confirm logic
+        self._combo_syr_preset.currentIndexChanged.connect(self._on_syringe_preset_changed)
         self._spin_syr_vol.valueChanged.connect(self._update_syringe_calcs)
         self._spin_syr_vol.valueChanged.connect(
             lambda: self._chk_confirm.setChecked(False) if self._chk_confirm.isChecked() else None)
+        # Reset preset to "Custom" when user edits volume or stroke manually
+        self._spin_syr_vol.valueChanged.connect(self._reset_preset_to_custom)
         self._spin_syr_stroke.valueChanged.connect(self._update_syringe_calcs)
         self._spin_syr_stroke.valueChanged.connect(
             lambda: self._chk_confirm.setChecked(False) if self._chk_confirm.isChecked() else None)
+        self._spin_syr_stroke.valueChanged.connect(self._reset_preset_to_custom)
         self._spin_input_ul.valueChanged.connect(self._update_syringe_calcs)
         self._spin_input_mm.valueChanged.connect(self._update_syringe_calcs)
         self._update_syringe_calcs()
@@ -1522,6 +1556,35 @@ class MainWindow(QMainWindow):
     PITCH_MM   = 0.8
     STEPS_REV  = 2048
     MM_PER_STEP = PITCH_MM / STEPS_REV      # 0.000390625 mm/step
+
+    # =========================================================================
+    #  Syringe preset helpers
+    # =========================================================================
+    _applying_preset: bool = False   # class-level guard; instance copy created on first write
+
+    def _on_syringe_preset_changed(self, index: int):
+        """Auto-fill volume + stroke when a Hamilton 1700 preset is chosen."""
+        _label, vol_ul, stroke_mm = HAMILTON_1700_PRESETS[index]
+        if vol_ul is None:
+            return  # "Custom…" — do nothing
+        self._applying_preset = True
+        try:
+            # Switch unit to µL so the preset volume is unambiguous
+            self._combo_syr_unit.setCurrentText("µL")
+            self._spin_syr_vol.setValue(vol_ul)
+            self._spin_syr_stroke.setValue(stroke_mm)
+        finally:
+            self._applying_preset = False
+        self._update_syringe_calcs()
+
+    def _reset_preset_to_custom(self, *_):
+        """Reset preset dropdown to 'Custom…' when user edits fields manually."""
+        if self._applying_preset:
+            return  # change was driven by a preset selection — don't reset
+        if self._combo_syr_preset.currentIndex() != 0:
+            self._combo_syr_preset.blockSignals(True)
+            self._combo_syr_preset.setCurrentIndex(0)
+            self._combo_syr_preset.blockSignals(False)
 
     def _update_syringe_calcs(self, *_):
         unit_scale = self._vol_scales[self._vol_unit]

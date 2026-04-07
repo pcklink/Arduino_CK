@@ -58,6 +58,7 @@ classdef microinject_gui < handle
         ProgDurationLabel
         
         % Syringe Tab
+        SyrPresetCombo
         SyrVolSpin
         SyrUnitCombo
         SyrStrokeSpin
@@ -98,6 +99,7 @@ classdef microinject_gui < handle
         % Radio Button Handles for Logic
         ManAccelS_Rb
         ManAccelMin_Rb
+        ApplyingPreset = false   % guard: true while applying a preset
     end
     
     properties (Constant)
@@ -108,10 +110,22 @@ classdef microinject_gui < handle
         ACCENT      = '#38bdf8' % sky blue
         ACCENT2     = '#818cf8' % indigo
         DANGER      = '#f87171'
-        SUCCESS     = '#34d399'
+        SUCCESS     = '#059669' % Darker emerald for better legibility with white text
         TEXT_PRI    = '#e2e8f0'
         TEXT_SEC    = '#7a8599'
         BORDER      = '#2a3040'
+        
+        % Hamilton 1700 series syringe presets: {label, volume_uL, stroke_mm}
+        % All 1700-series models share the same 60 mm plunger stroke.
+        HAMILTON_1700_PRESETS = {
+            'Custom…',        [],    [];
+            '1701 — 10 µL',   10.0,  60.0;
+            '1702 — 25 µL',   25.0,  60.0;
+            '1705 — 50 µL',   50.0,  60.0;
+            '1710 — 100 µL',  100.0, 60.0;
+            '1725 — 250 µL',  250.0, 60.0;
+            '1750 — 500 µL',  500.0, 60.0;
+        }
     end
     
     methods
@@ -406,22 +420,32 @@ classdef microinject_gui < handle
             
             % Setup
             setupP = uipanel(gl, 'Title', 'Syringe Geometry Calibration', 'BackgroundColor', obj.PANEL_BG, 'ForegroundColor', obj.ACCENT, 'FontWeight', 'bold');
-            fl = uigridlayout(setupP, [5, 2]);
+            fl = uigridlayout(setupP, [6, 2]);
             fl.ColumnWidth = {160, '1x'};
             fl.RowSpacing = 8;
+            
+            % Preset picker
+            uilabel(fl, 'Text', 'Syringe preset:', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
+            presetLabels = obj.HAMILTON_1700_PRESETS(:,1);
+            obj.SyrPresetCombo = uidropdown(fl, 'Items', presetLabels', ...
+                'Value', 'Custom…', 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI, ...
+                'Tooltip', 'Select a Hamilton 1700 syringe to auto-fill volume and stroke.');
+            obj.SyrPresetCombo.ValueChangedFcn = @(~,e) obj.onSyringePresetChanged(e.Value);
             
             uilabel(fl, 'Text', 'Total Syringe Volume:', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
             ug = uigridlayout(fl, [1, 2]);
             ug.Padding = [0 0 0 0];
             ug.ColumnWidth = {80, '1x'};
-            obj.SyrVolSpin = uieditfield(ug, 'numeric', 'Value', 50, 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI);
+            obj.SyrVolSpin = uieditfield(ug, 'numeric', 'Value', 50, 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI, ...
+                'ValueChangedFcn', @(~,~) obj.resetPresetToCustom());
             obj.SyrUnitCombo = uidropdown(ug, 'Items', {'nL','µL','mL'}, 'Value', 'µL', 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI);
             
             uilabel(fl, 'Text', 'Full Plunger Stroke (mm):', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
             sg = uigridlayout(fl, [1, 1]);
             sg.Padding = [0 0 0 0];
             sg.ColumnWidth = {80};
-            obj.SyrStrokeSpin = uieditfield(sg, 'numeric', 'Value', 30, 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI);
+            obj.SyrStrokeSpin = uieditfield(sg, 'numeric', 'Value', 60, 'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI, ...
+                'ValueChangedFcn', @(~,~) obj.resetPresetToCustom());
             
             uilabel(fl, 'Text', 'Calculated µL / Step:', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
             obj.SyrUlStepLabel = uilabel(fl, 'Text', '-', 'FontColor', obj.ACCENT, 'FontWeight', 'bold', 'FontSize', 13);
@@ -451,8 +475,8 @@ classdef microinject_gui < handle
             obj.ConvMmToUlLabel = uilabel(c2l, 'Text', '--- µL', 'FontColor', obj.ACCENT, 'FontSize', 16, 'FontWeight', 'bold');
             
             % Wire updates
-            obj.SyrVolSpin.ValueChangedFcn = @(~,~) obj.updateSyringeCalcs();
-            obj.SyrStrokeSpin.ValueChangedFcn = @(~,~) obj.updateSyringeCalcs();
+            obj.SyrVolSpin.ValueChangedFcn = @(~,~) obj.resetPresetToCustom();
+            obj.SyrStrokeSpin.ValueChangedFcn = @(~,~) obj.resetPresetToCustom();
             obj.ConvInputUlSpin.ValueChangedFcn = @(~,~) obj.updateSyringeCalcs();
             obj.ConvInputMmSpin.ValueChangedFcn = @(~,~) obj.updateSyringeCalcs();
             obj.updateSyringeCalcs();
@@ -725,6 +749,35 @@ classdef microinject_gui < handle
             % Converters
             obj.ConvUlToStepsLabel.Text = sprintf('%.0f steps', obj.ConvInputUlSpin.Value / ul_per_step);
             obj.ConvMmToUlLabel.Text = sprintf('%.4f %s', (obj.ConvInputMmSpin.Value / obj.MM_PER_STEP) * ul_per_step, obj.SyrUnitCombo.Value);
+        end
+        
+        function onSyringePresetChanged(obj, label)
+            % Find the selected preset row
+            presets = obj.HAMILTON_1700_PRESETS;
+            row = find(strcmp(presets(:,1), label));
+            if isempty(row) || isempty(presets{row,2})
+                return  % "Custom…" selected — do nothing
+            end
+            vol_ul   = presets{row, 2};
+            stroke   = presets{row, 3};
+            obj.ApplyingPreset = true;
+            try
+                obj.SyrUnitCombo.Value = 'µL';
+                obj.SyrVolSpin.Value   = vol_ul;
+                obj.SyrStrokeSpin.Value = stroke;
+            catch
+            end
+            obj.ApplyingPreset = false;
+            obj.updateSyringeCalcs();
+        end
+        
+        function resetPresetToCustom(obj)
+            % Reset preset dropdown to "Custom…" when the user edits fields.
+            if obj.ApplyingPreset, return; end
+            if ~strcmp(obj.SyrPresetCombo.Value, 'Custom…')
+                obj.SyrPresetCombo.Value = 'Custom…';
+            end
+            obj.updateSyringeCalcs();
         end
         
         function onSyringeConfirmed(obj)
