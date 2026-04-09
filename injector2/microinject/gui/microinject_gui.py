@@ -1534,14 +1534,13 @@ class MainWindow(QMainWindow):
         if ul_mode and spu > 0:
             scale = self._vol_scales[self._vol_unit]
             d  = max(1, round(self._spin_dist.value() * spu / scale))
-            v0 = max(1, min(600, round(self._spin_start_speed.value() * spu / scale)))
-            v1 = max(1, min(600, round(self._spin_end_speed.value() * spu / scale)))
-            a  = max(-400, min(400, round(self._spin_accel.value() * spu / scale)))
         else:
             d  = max(1, round(self._spin_dist.value()       / MM_PER_STEP))
-            v0 = max(1, min(600, round(self._spin_start_speed.value() / MM_PER_STEP)))
-            v1 = max(1, min(600, round(self._spin_end_speed.value()   / MM_PER_STEP)))
-            a  = max(-400, min(400, round(self._spin_accel.value()   / MM_PER_STEP)))
+
+        v0 = self._display_to_speed_steps(self._spin_start_speed.value())
+        v1 = self._display_to_speed_steps(self._spin_end_speed.value())
+        a  = self._display_to_accel_steps(self._spin_accel.value())
+
         step = ProgramStep(distance=d, start_speed=v0, end_speed=v1, accel=a)
         dur = self._calculate_step_duration(step)
         if dur >= 60:
