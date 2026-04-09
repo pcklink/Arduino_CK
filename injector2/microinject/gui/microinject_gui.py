@@ -431,21 +431,26 @@ class SerialWorker(QObject):
                 continue
 
             # Send queued data
+            port_error = False
             while not self._send_queue.empty():
                 try:
                     data = self._send_queue.get_nowait()
                     port.write(data.encode("ascii", errors="replace"))
                     port.flush()
-                except (serial.SerialException, OSError) as e:
+                except (serial.SerialException, OSError, TypeError) as e:
                     self.disconnected.emit(str(e))
                     with self._lock:
                         self._port = None
+                    port_error = True
                     break
+            
+            if port_error:
+                continue
 
             # Read incoming data
             try:
                 raw = port.read(256)
-            except (serial.SerialException, OSError) as e:
+            except (serial.SerialException, OSError, TypeError) as e:
                 self.disconnected.emit(str(e))
                 with self._lock:
                     self._port = None
