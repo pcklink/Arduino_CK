@@ -438,7 +438,10 @@ class SerialWorker(QObject):
                     port.write(data.encode("ascii", errors="replace"))
                     port.flush()
                 except (serial.SerialException, OSError, TypeError) as e:
-                    self.disconnected.emit(str(e))
+                    msg = str(e)
+                    if "NoneType" in msg and "integer" in msg:
+                        msg = "Device disconnected"
+                    self.disconnected.emit(msg)
                     with self._lock:
                         self._port = None
                     port_error = True
@@ -451,7 +454,10 @@ class SerialWorker(QObject):
             try:
                 raw = port.read(256)
             except (serial.SerialException, OSError, TypeError) as e:
-                self.disconnected.emit(str(e))
+                msg = str(e)
+                if "NoneType" in msg and "integer" in msg:
+                    msg = "Device disconnected"
+                self.disconnected.emit(msg)
                 with self._lock:
                     self._port = None
                 continue
