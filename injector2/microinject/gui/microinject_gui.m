@@ -47,6 +47,10 @@ classdef microinject_gui < handle
         ManRangeHintAccel
         ManMoveBtn
         ManStopBtn
+        ManJogSpeedSpin
+        ManJogFwdBtn
+        ManJogBwdBtn
+        CountdownValue
         
         % Program Tab
         ProgTable
@@ -234,14 +238,15 @@ classdef microinject_gui < handle
         end
         
         function setupManualTab(obj)
-            gl = uigridlayout(obj.ManualTab, [6, 1]);
-            gl.RowHeight = {55, 55, 110, 220, 150, '1x'};
-            gl.Padding = [20 20 20 20];
-            gl.RowSpacing = 15;
+            gl = uigridlayout(obj.ManualTab, [7, 1]);
+            gl.RowHeight = {45, 45, 65, 175, 115, '1x', 55};
+            gl.Padding = [15 10 15 10];
+            gl.RowSpacing = 10;
             
             % Unit Toggle Row
             unitGrid = uigridlayout(gl, [1, 2]);
             unitGrid.ColumnWidth = {100, '1x'};
+            unitGrid.Padding = [0 0 0 0];
             uilabel(unitGrid, 'Text', 'Input Units:', 'FontWeight', 'bold', 'FontColor', obj.TEXT_SEC, 'FontSize', 13);
             
             unitBg = uibuttongroup(unitGrid, 'BorderType', 'none', 'BackgroundColor', obj.PANEL_BG);
@@ -253,6 +258,7 @@ classdef microinject_gui < handle
             % Direction Group
             dirGrid = uigridlayout(gl, [1, 2]);
             dirGrid.ColumnWidth = {100, '1x'};
+            dirGrid.Padding = [0 0 0 0];
             uilabel(dirGrid, 'Text', 'Direction:', 'FontWeight', 'bold', 'FontColor', obj.TEXT_SEC, 'FontSize', 13);
             
             dirBg = uibuttongroup(dirGrid, 'BorderType', 'none', 'BackgroundColor', obj.PANEL_BG);
@@ -263,8 +269,9 @@ classdef microinject_gui < handle
             % Distance Panel
             distP = uipanel(gl, 'Title', 'Distance', 'BackgroundColor', obj.PANEL_BG, 'ForegroundColor', obj.ACCENT, 'FontWeight', 'bold');
             dl = uigridlayout(distP, [1, 3]);
-            dl.RowHeight = {30};
+            dl.RowHeight = {28};
             dl.ColumnWidth = {80, 40, '1x'};
+            dl.Padding = [10 5 10 5];
             obj.ManDistSpin = uieditfield(dl, 'numeric', 'Value', 0.8, 'BackgroundColor', obj.CARD_BG, ...
                 'FontColor', obj.TEXT_PRI, 'ValueChangedFcn', @(~,~) obj.onManualParamChanged());
             uilabel(dl, 'Text', 'mm', 'FontColor', obj.TEXT_SEC);
@@ -273,10 +280,10 @@ classdef microinject_gui < handle
             % Speed Panel
             speedP = uipanel(gl, 'Title', 'Speed', 'BackgroundColor', obj.PANEL_BG, 'ForegroundColor', obj.ACCENT, 'FontWeight', 'bold');
             sl = uigridlayout(speedP, [5, 4]);
-            sl.RowHeight = {30, 40, 40, 30, 25};
+            sl.RowHeight = {24, 33, 33, 24, 18};
             sl.ColumnWidth = {60, '1x', 80, 50};
-            sl.RowSpacing = 5;
-            sl.Padding = [15 15 15 10];
+            sl.RowSpacing = 3;
+            sl.Padding = [12 8 12 5];
             
             % Time Unit Toggle
             tul = uilabel(sl, 'Text', 'Time unit:', 'FontSize', 11, 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
@@ -334,10 +341,10 @@ classdef microinject_gui < handle
             % Accel Panel
             accelP = uipanel(gl, 'Title', 'Acceleration', 'BackgroundColor', obj.PANEL_BG, 'ForegroundColor', obj.ACCENT, 'FontWeight', 'bold');
             al = uigridlayout(accelP, [3, 4]);
-            al.RowHeight = {30, 40, 25};
+            al.RowHeight = {24, 33, 18};
             al.ColumnWidth = {60, '1x', 80, 50};
-            al.RowSpacing = 5;
-            al.Padding = [15 15 15 10];
+            al.RowSpacing = 3;
+            al.Padding = [12 8 12 5];
             
             % Time Unit Toggle
             alul = uilabel(al, 'Text', 'Time unit:', 'FontSize', 11, 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
@@ -370,12 +377,37 @@ classdef microinject_gui < handle
             al_hint = uilabel(al, 'Text', hintStr, 'FontSize', 11, 'FontColor', obj.TEXT_SEC, 'FontAngle', 'italic', 'VerticalAlignment', 'top');
             al_hint.Layout.Row = 3; al_hint.Layout.Column = [1 4];
             
+            % Continuous Jog Panel
+            jogP = uipanel(gl, 'Title', 'Continuous Jog', 'BackgroundColor', obj.PANEL_BG, 'ForegroundColor', obj.ACCENT, 'FontWeight', 'bold');
+            jl = uigridlayout(jogP, [2, 1]);
+            jl.RowHeight = {'1x', '2x'};
+            jl.RowSpacing = 10;
+            jl.Padding = [12 10 12 10];
+
+            % Speed row
+            jogSpdRow = uigridlayout(jl, [1, 4]);
+            jogSpdRow.ColumnWidth = {50, 100, 50, '1x'};
+            jogSpdRow.Padding = [0 0 0 0];
+            uilabel(jogSpdRow, 'Text', 'Speed:', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center', 'FontSize', 12);
+            obj.ManJogSpeedSpin = uieditfield(jogSpdRow, 'numeric', 'Value', 100*obj.MM_PER_STEP, ...
+                'BackgroundColor', obj.CARD_BG, 'FontColor', obj.TEXT_PRI);
+            uilabel(jogSpdRow, 'Text', 'mm/s', 'FontColor', obj.TEXT_SEC, 'VerticalAlignment', 'center');
+            uilabel(jogSpdRow, 'Text', ''); % spacer
+
+            % Button row
+            jogBtnRow = uigridlayout(jl, [1, 2]);
+            jogBtnRow.Padding = [0 0 0 0];
+            obj.ManJogFwdBtn = uibutton(jogBtnRow, 'Text', '⬆  Jog Forward', 'FontSize', 13, 'FontWeight', 'bold', ...
+                'BackgroundColor', obj.ACCENT, 'ButtonPushedFcn', @(~,~) obj.doJog(true));
+            obj.ManJogBwdBtn = uibutton(jogBtnRow, 'Text', '⬇  Jog Backward', 'FontSize', 13, 'FontWeight', 'bold', ...
+                'BackgroundColor', obj.ACCENT, 'ButtonPushedFcn', @(~,~) obj.doJog(false));
+
             % Actions
             actGrid = uigridlayout(gl, [1, 2]);
             actGrid.ColumnWidth = {'3x', '1x'};
-            obj.ManMoveBtn = uibutton(actGrid, 'Text', '▶  Move Motor', 'FontSize', 15, 'FontWeight', 'bold', ...
+            obj.ManMoveBtn = uibutton(actGrid, 'Text', '▶  Move Motor', 'FontSize', 13, 'FontWeight', 'bold', ...
                 'BackgroundColor', obj.ACCENT, 'ButtonPushedFcn', @(~,~) obj.doManualMove());
-            obj.ManStopBtn = uibutton(actGrid, 'Text', '🛑  STOP', 'FontSize', 15, 'FontWeight', 'bold', ...
+            obj.ManStopBtn = uibutton(actGrid, 'Text', '🛑  STOP', 'FontSize', 13, 'FontWeight', 'bold', ...
                 'BackgroundColor', obj.DANGER, 'FontColor', 'white', 'ButtonPushedFcn', @(~,~) obj.doAbort());
         end
         
@@ -519,7 +551,7 @@ classdef microinject_gui < handle
             upperL = upper(strtrim(line));
             
             % State Monitoring
-            if contains(upperL, "STARTING MOVE") || contains(upperL, "STARTING...")
+            if contains(upperL, "STARTING MOVE") || contains(upperL, "STARTING...") || contains(upperL, "STARTING JOG")
                 obj.setMotorState('MOVING');
             elseif contains(upperL, "[DONE]") || contains(upperL, "[ABORTED]")
                 obj.setMotorState('IDLE');
@@ -645,6 +677,16 @@ classdef microinject_gui < handle
         
         function doAbort(obj)
             obj.sendRaw('X'); obj.stopCountdown();
+        end
+
+        function doJog(obj, forward)
+            speed_steps = max(1, min(600, round(obj.ManJogSpeedSpin.Value / obj.MM_PER_STEP)));
+            if forward
+                dir = 'F';
+            else
+                dir = 'B';
+            end
+            obj.sendRaw(sprintf('K %s %d', dir, speed_steps));
         end
         
         function addStepDialog(obj)

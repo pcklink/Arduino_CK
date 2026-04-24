@@ -48,7 +48,7 @@ del _os
 # ─────────────────────────────────────────────────────────────────────────────
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QObject, pyqtSlot
+    Qt, QThread, pyqtSignal, QTimer, QObject, pyqtSlot, QLocale
 )
 from PyQt6.QtGui import QFont, QColor, QTextCursor
 from PyQt6.QtWidgets import (
@@ -1083,6 +1083,40 @@ class MainWindow(QMainWindow):
         self._spin_accel.valueChanged.connect(self._update_dur_display)
         self._update_dur_display()
 
+        # Continuous Jog
+        jog_group = QGroupBox("Continuous Jog")
+        jog_vlay = QVBoxLayout(jog_group)
+        jog_vlay.setSpacing(6)
+
+        jog_speed_row = QHBoxLayout()
+        jog_spd_lbl = QLabel("Speed:")
+        jog_spd_lbl.setStyleSheet(f"color: {TEXT_SEC}; font-size: 12px; min-width: 50px;")
+        self._spin_jog_speed = QDoubleSpinBox()
+        self._spin_jog_speed.setRange(round(MM_PER_STEP, 5), round(600 * MM_PER_STEP, 4))
+        self._spin_jog_speed.setValue(round(100 * MM_PER_STEP, 4))
+        self._spin_jog_speed.setDecimals(4)
+        self._spin_jog_speed.setSuffix("  mm/s")
+        self._spin_jog_speed.setFixedWidth(130)
+        jog_speed_row.addWidget(jog_spd_lbl)
+        jog_speed_row.addWidget(self._spin_jog_speed)
+        jog_speed_row.addStretch()
+        jog_vlay.addLayout(jog_speed_row)
+
+        jog_btn_row = QHBoxLayout()
+        self._btn_jog_fwd = QPushButton("⬆  Jog Forward")
+        self._btn_jog_fwd.setObjectName("accentBtn")
+        self._btn_jog_fwd.setMinimumHeight(36)
+        self._btn_jog_fwd.clicked.connect(lambda: self._do_jog(True))
+        self._btn_jog_bwd = QPushButton("⬇  Jog Backward")
+        self._btn_jog_bwd.setObjectName("accentBtn")
+        self._btn_jog_bwd.setMinimumHeight(36)
+        self._btn_jog_bwd.clicked.connect(lambda: self._do_jog(False))
+        jog_btn_row.addWidget(self._btn_jog_fwd)
+        jog_btn_row.addWidget(self._btn_jog_bwd)
+        jog_vlay.addLayout(jog_btn_row)
+
+        vbox.addWidget(jog_group)
+
         vbox.addStretch()
 
         # Move row
@@ -1422,7 +1456,7 @@ class MainWindow(QMainWindow):
         upper = stripped.upper()
 
         # ── Motor state transitions ───────────────────────────────────────────
-        if "STARTING MOVE" in upper or "STARTING..." in upper:
+        if "STARTING MOVE" in upper or "STARTING..." in upper or "STARTING JOG" in upper:
             self._set_motor_state(self.ST_MOVING)
             return
 
@@ -2035,6 +2069,11 @@ class MainWindow(QMainWindow):
             f" font-size: 18px; font-weight: 700; min-width: 90px;")
         self._send_raw("X")
 
+    def _do_jog(self, forward: bool):
+        speed_steps = max(1, min(600, round(self._spin_jog_speed.value() / MM_PER_STEP)))
+        direction = "F" if forward else "B"
+        self._send_raw(f"K {direction} {speed_steps}")
+
     def keyPressEvent(self, event):
         """Handle global key shortcuts."""
         if event.key() == Qt.Key.Key_Escape:
@@ -2207,6 +2246,8 @@ class MainWindow(QMainWindow):
         self._btn_add_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_del_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_clear_prog.setEnabled(not moving and self._worker.is_connected)
+        self._btn_jog_fwd.setEnabled(not moving and self._worker.is_connected)
+        self._btn_jog_bwd.setEnabled(not moving and self._worker.is_connected)
 
         if moving:
             self._lbl_motor_status.setText("Motor: RUNNING  ●")
@@ -2227,6 +2268,8 @@ class MainWindow(QMainWindow):
         self._btn_add_step.setEnabled(connected)
         self._btn_del_step.setEnabled(connected)
         self._btn_clear_prog.setEnabled(connected)
+        self._btn_jog_fwd.setEnabled(connected)
+        self._btn_jog_bwd.setEnabled(connected)
 
     def _log_line(self, text: str, color: Optional[str] = None):
         cursor = self._log.textCursor()
@@ -2260,6 +2303,7 @@ class MainWindow(QMainWindow):
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     app = QApplication(sys.argv)
+    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
     app.setApplicationName("Microinjector Control Panel")
     app.setOrganizationName("Lab")
 

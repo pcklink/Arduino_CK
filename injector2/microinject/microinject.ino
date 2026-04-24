@@ -45,7 +45,7 @@ float g_accel = 0.0f;
 bool g_fwd = true;
 
 // ---- State machine ----
-enum State { STATE_IDLE, STATE_MOVING_MANUAL, STATE_MOVING_PROG };
+enum State { STATE_IDLE, STATE_MOVING_MANUAL, STATE_MOVING_PROG, STATE_JOGGING };
 State state = STATE_IDLE;
 uint8_t progStepIndex = 0;
 
@@ -277,6 +277,24 @@ void loop() {
     return;
   }
 
+  // ---- STATE_JOGGING: run until X received ----
+  if (state == STATE_JOGGING) {
+    if (Serial.available()) {
+      String s = Serial.readStringUntil('\n');
+      s.trim();
+      s.toUpperCase();
+      if (s == "X") {
+        stepper.setSpeed(0);
+        g_moving = false;
+        stepper.disableOutputs();
+        Serial.println(F("\n[ABORTED] Motor stopped."));
+        state = STATE_IDLE;
+        printMainMenu();
+      }
+    }
+    return;
+  }
+
   // ---- STATE_IDLE: process commands ----
   if (!Serial.available())
     return;
@@ -381,6 +399,34 @@ void loop() {
     programCount = 0;
     Serial.println(F("Program cleared."));
     printMainMenu();
+    break;
+  }
+
+  case 'K': {
+    // Format: "K F <speed>" or "K B <speed>"  (speed in steps/s)
+    if (cmd.length() < 5) {
+      Serial.println(F("! Usage: K F <speed> or K B <speed>"));
+      printMainMenu();
+      break;
+    }
+    char dir_char = toupper(cmd.charAt(2));
+    bool jog_fwd = (dir_char == 'F');
+    float jog_speed = cmd.substring(4).toFloat();
+    jog_speed = constrain(jog_speed, 1.0f, ABS_MAX_SPEED);
+
+    stepper.setCurrentPosition(0);
+    g_target_dist = 2000000000L; // never reached
+    g_start_speed = jog_speed;
+    g_end_speed = jog_speed;
+    g_accel = 0.0f;
+    g_fwd = jog_fwd;
+    g_moving = true;
+
+    stepper.setMaxSpeed(jog_speed);
+    stepper.setSpeed(jog_fwd ? -jog_speed : jog_speed);
+    stepper.enableOutputs();
+    Serial.println(F("Starting jog... (type X + Enter to stop)"));
+    state = STATE_JOGGING;
     break;
   }
 
