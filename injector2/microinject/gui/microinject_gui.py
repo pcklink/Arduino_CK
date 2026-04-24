@@ -48,7 +48,7 @@ del _os
 # ─────────────────────────────────────────────────────────────────────────────
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QObject, pyqtSlot, QLocale
+    Qt, QThread, pyqtSignal, QTimer, QObject, pyqtSlot, QLocale, QEvent
 )
 from PyQt6.QtGui import QFont, QColor, QTextCursor
 from PyQt6.QtWidgets import (
@@ -695,6 +695,7 @@ class MainWindow(QMainWindow):
         self._syncing_speed = False          # prevents slider↔spinner feedback loops
         self._speed_time_scale: float = 1.0  # 1.0 = /s, 60.0 = /min
         self._accel_time_scale: float = 1.0  # 1.0 = /s², 3600.0 = /min²
+        self._jog_active = False             # True while a hold-jog is in progress
 
         # ── volume units ──────────────────────────────────────────────────────
         self._vol_unit = "µL"
@@ -725,6 +726,10 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._refresh_ports()
         self._set_motor_state(self.ST_IDLE)
+
+        # Global mouse-release catch so jog always stops even if the pointer
+        # drifts off the button before the user lets go.
+        QApplication.instance().installEventFilter(self)
         self._update_controls_for_connection(False)
 
     # =========================================================================
@@ -1106,11 +1111,13 @@ class MainWindow(QMainWindow):
         self._btn_jog_fwd = QPushButton("⬆  Jog Forward")
         self._btn_jog_fwd.setObjectName("accentBtn")
         self._btn_jog_fwd.setMinimumHeight(36)
-        self._btn_jog_fwd.clicked.connect(lambda: self._do_jog(True))
+        self._btn_jog_fwd.pressed.connect(lambda: self._do_jog(True))
+        self._btn_jog_fwd.released.connect(self._do_jog_stop)
         self._btn_jog_bwd = QPushButton("⬇  Jog Backward")
         self._btn_jog_bwd.setObjectName("accentBtn")
         self._btn_jog_bwd.setMinimumHeight(36)
-        self._btn_jog_bwd.clicked.connect(lambda: self._do_jog(False))
+        self._btn_jog_bwd.pressed.connect(lambda: self._do_jog(False))
+        self._btn_jog_bwd.released.connect(self._do_jog_stop)
         jog_btn_row.addWidget(self._btn_jog_fwd)
         jog_btn_row.addWidget(self._btn_jog_bwd)
         jog_vlay.addLayout(jog_btn_row)
@@ -2070,15 +2077,42 @@ class MainWindow(QMainWindow):
         self._send_raw("X")
 
     def _do_jog(self, forward: bool):
+        if self._jog_active:
+            return
+        self._jog_active = True
         speed_steps = max(1, min(600, round(self._spin_jog_speed.value() / MM_PER_STEP)))
         direction = "F" if forward else "B"
         self._send_raw(f"K {direction} {speed_steps}")
 
+    def _do_jog_stop(self):
+        if not self._jog_active:
+            return
+        self._jog_active = False
+        self._send_raw("X")
+
+    def eventFilter(self, obj, event):
+        # Guarantee jog stops on any mouse release anywhere in the application,
+        # even if the pointer drifted off the button before the user let go.
+        if event.type() == QEvent.Type.MouseButtonRelease and self._jog_active:
+            self._do_jog_stop()
+        return super().eventFilter(obj, event)
+
     def keyPressEvent(self, event):
-        """Handle global key shortcuts."""
-        if event.key() == Qt.Key.Key_Escape:
+        if event.isAutoRepeat():
+            super().keyPressEvent(event)
+            return
+        if event.key() == Qt.Key.Key_Up:
+            self._do_jog(True)
+        elif event.key() == Qt.Key.Key_Down:
+            self._do_jog(False)
+        elif event.key() == Qt.Key.Key_Escape:
             self._do_abort()
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if not event.isAutoRepeat() and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            self._do_jog_stop()
+        super().keyReleaseEvent(event)
 
     def _do_add_step(self):
         if len(self._program) >= 5:

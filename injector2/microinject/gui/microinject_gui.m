@@ -99,7 +99,8 @@ classdef microinject_gui < handle
         CmdQueue = {}
         ManualStepPending = []
         ProgStepPending = []
-        
+        JogActive = false
+
         % Radio Button Handles for Logic
         ManAccelS_Rb
         ManAccelMin_Rb
@@ -160,7 +161,10 @@ classdef microinject_gui < handle
             % Main Figure
             obj.Figure = uifigure('Name', 'Microinjector Control Panel', ...
                 'Position', [100 100 1200 900], 'Color', obj.DARK_BG, ...
-                'WindowKeyPressFcn', @obj.onGlobalKey);
+                'WindowKeyPressFcn',   @obj.onGlobalKey, ...
+                'WindowKeyReleaseFcn', @obj.onGlobalKeyRelease, ...
+                'WindowButtonDownFcn', @obj.onWindowButtonDown, ...
+                'WindowButtonUpFcn',   @obj.onWindowButtonUp);
             
             % Outer Grid
             mainLayout = uigridlayout(obj.Figure, [3, 2]);
@@ -398,9 +402,9 @@ classdef microinject_gui < handle
             jogBtnRow = uigridlayout(jl, [1, 2]);
             jogBtnRow.Padding = [0 0 0 0];
             obj.ManJogFwdBtn = uibutton(jogBtnRow, 'Text', '⬆  Jog Forward', 'FontSize', 13, 'FontWeight', 'bold', ...
-                'BackgroundColor', obj.ACCENT, 'ButtonPushedFcn', @(~,~) obj.doJog(true));
+                'BackgroundColor', obj.ACCENT);
             obj.ManJogBwdBtn = uibutton(jogBtnRow, 'Text', '⬇  Jog Backward', 'FontSize', 13, 'FontWeight', 'bold', ...
-                'BackgroundColor', obj.ACCENT, 'ButtonPushedFcn', @(~,~) obj.doJog(false));
+                'BackgroundColor', obj.ACCENT);
 
             % Actions
             actGrid = uigridlayout(gl, [1, 2]);
@@ -680,6 +684,8 @@ classdef microinject_gui < handle
         end
 
         function doJog(obj, forward)
+            if obj.JogActive, return; end
+            obj.JogActive = true;
             speed_steps = max(1, min(600, round(obj.ManJogSpeedSpin.Value / obj.MM_PER_STEP)));
             if forward
                 dir = 'F';
@@ -687,6 +693,25 @@ classdef microinject_gui < handle
                 dir = 'B';
             end
             obj.sendRaw(sprintf('K %s %d', dir, speed_steps));
+        end
+
+        function doJogStop(obj)
+            if ~obj.JogActive, return; end
+            obj.JogActive = false;
+            obj.sendRaw('X');
+        end
+
+        function onWindowButtonDown(obj, ~, ~)
+            co = obj.Figure.CurrentObject;
+            if isequal(co, obj.ManJogFwdBtn)
+                obj.doJog(true);
+            elseif isequal(co, obj.ManJogBwdBtn)
+                obj.doJog(false);
+            end
+        end
+
+        function onWindowButtonUp(obj, ~, ~)
+            obj.doJogStop();
         end
         
         function addStepDialog(obj)
@@ -843,7 +868,19 @@ classdef microinject_gui < handle
         end
         
         function onGlobalKey(obj, ~, event)
-            if strcmp(event.Key, 'escape'), obj.doAbort(); end
+            if strcmp(event.Key, 'escape')
+                obj.doAbort();
+            elseif strcmp(event.Key, 'uparrow')
+                obj.doJog(true);
+            elseif strcmp(event.Key, 'downarrow')
+                obj.doJog(false);
+            end
+        end
+
+        function onGlobalKeyRelease(obj, ~, event)
+            if strcmp(event.Key, 'uparrow') || strcmp(event.Key, 'downarrow')
+                obj.doJogStop();
+            end
         end
         
         function startCountdown(obj, dur)
