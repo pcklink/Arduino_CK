@@ -805,7 +805,7 @@ class MainWindow(QMainWindow):
 
         self._btn_connect = QPushButton("Connect")
         self._btn_connect.setObjectName("successBtn")
-        self._btn_connect.setFixedWidth(110)
+        self._btn_connect.setFixedWidth(130)
         self._btn_connect.clicked.connect(self._toggle_connect)
         layout.addWidget(self._btn_connect)
 
@@ -1450,9 +1450,24 @@ class MainWindow(QMainWindow):
         self._log_line(f"[ERROR] {msg}", color=DANGER)
 
     @pyqtSlot(str)
+    @staticmethod
+    def _is_loggable(line: str) -> bool:
+        """Return True for firmware lines that are meaningful in a GUI context."""
+        s = line.strip()
+        u = s.upper()
+        # Status events — match specific multi-word tags, not single-letter menu items
+        if u.startswith("[DONE]") or u.startswith("[ABORTED]") or u.startswith("[STEP"): return True
+        if u.startswith("STARTING"):        return True   # Starting move… / Starting jog…
+        # Confirmations
+        if s in ("Step added.", "Step deleted.", "Program cleared."): return True
+        # Errors and warnings from firmware
+        if s.startswith("!"):               return True
+        return False
+
     def _on_line(self, line: str):
         """Called for every line received from Arduino."""
-        self._log_line(line)
+        if self._is_loggable(line):
+            self._log_line(line)
         self._parse_arduino_line(line)
 
     # =========================================================================
@@ -2280,8 +2295,8 @@ class MainWindow(QMainWindow):
         self._btn_add_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_del_step.setEnabled(not moving and self._worker.is_connected)
         self._btn_clear_prog.setEnabled(not moving and self._worker.is_connected)
-        self._btn_jog_fwd.setEnabled(not moving and self._worker.is_connected)
-        self._btn_jog_bwd.setEnabled(not moving and self._worker.is_connected)
+        self._btn_jog_fwd.setEnabled((not moving or self._jog_active) and self._worker.is_connected)
+        self._btn_jog_bwd.setEnabled((not moving or self._jog_active) and self._worker.is_connected)
 
         if moving:
             self._lbl_motor_status.setText("Motor: RUNNING  ●")

@@ -547,8 +547,21 @@ classdef microinject_gui < handle
         function onLineReceived(obj, src, ~)
             line = readline(src);
             if isempty(line), return; end
-            obj.logLine(line);
+            if obj.isLoggable(line), obj.logLine(line); end
             obj.parseArduinoLine(line);
+        end
+
+        function result = isLoggable(~, line)
+            s = strtrim(line);
+            u = upper(s);
+            result = startsWith(u, '[DONE]') || ...     % [DONE] Move/Program complete.
+                     startsWith(u, '[ABORTED]') || ...  % [ABORTED] Motor stopped.
+                     startsWith(u, '[STEP') || ...      % [STEP N/M] Starting...
+                     startsWith(u, 'STARTING') || ...   % Starting move… / Starting jog…
+                     startsWith(s, '!') || ...          % firmware errors/warnings
+                     strcmp(s, 'Step added.') || ...
+                     strcmp(s, 'Step deleted.') || ...
+                     strcmp(s, 'Program cleared.');
         end
         
         function parseArduinoLine(obj, line)
