@@ -94,7 +94,7 @@ STYLESHEET = f"""
 QMainWindow, QWidget {{
     background-color: {DARK_BG};
     color: {TEXT_PRI};
-    font-family: 'Inter', 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: 13px;
 }}
 QGroupBox {{
@@ -256,7 +256,7 @@ QTextEdit {{
     color: #a5f3c4;
     border: 1px solid {BORDER};
     border-radius: 8px;
-    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: 'Courier New', monospace;
     font-size: 12px;
     padding: 8px;
 }}
@@ -309,7 +309,7 @@ QLabel#valueLabel {{
     color: {ACCENT};
     font-size: 20px;
     font-weight: 700;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: 'Courier New', monospace;
 }}
 QFrame#divider {{
     background: {BORDER};
